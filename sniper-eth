@@ -1,0 +1,63 @@
+import os
+import time
+import pandas as pd
+from binance.client import Client
+
+# CONFIGURACIÓN DE SEGURIDAD
+API_KEY = os.getenv('BINANCE_API_KEY')
+API_SECRET = os.getenv('BINANCE_API_SECRET')
+client = Client(API_KEY, API_SECRET)
+
+# PARÁMETROS ALE IA QUANTUM
+SYMBOL = 'ETHUSDT'
+LEVERAGE = 10  # Mantengo tus x10 de Binance
+RISK_REWARD = 2.0  # Objetivo mínimo 2%
+TRAILING_PERCENT = 0.0010  # 0.10% SNIPER (Súper sensible para asegurar ganancias)
+COMPOUND_RATE = 0.20  # Interés compuesto al 20% sugerido
+
+def obtener_balance():
+    balance = client.futures_account_balance()
+    for b in balance:
+        if b['asset'] == 'USDT':
+            return float(b['balance'])
+    return 0
+
+def sniper_trailing_stop():
+    # El bot monitorea la posición abierta
+    posicion = client.futures_position_information(symbol=SYMBOL)[0]
+    pnl_unrealized = float(posicion['unRealizedProfit'])
+    entry_price = float(posicion['entryPrice'])
+    mark_price = float(posicion['markPrice'])
+    amt = float(posicion['positionAmt'])
+
+    if amt == 0:
+        return # No hay operación abierta
+
+    # Cálculo de ROI actual
+    roi = (pnl_unrealized / (abs(amt) * entry_price / LEVERAGE)) * 100
+
+    # Lógica de Salida "Sniper" (0.10%)
+    if roi >= 2.0:
+        print(f"--- ¡Objetivo alcanzado! ROI: {roi:.2f}% ---")
+        # Si el precio retrocede 0.10% desde el punto actual, cierra y asegura la plata
+        client.futures_create_order(
+            symbol=SYMBOL,
+            side='SELL' if amt > 0 else 'BUY',
+            type='MARKET',
+            quantity=abs(amt)
+        )
+        print("Operación cerrada por Sniper Trailing 0.10%")
+
+def ejecutar_bot():
+    print("ALE IA QUANTUM: Sniper Mode Activado (Plan Starter $0)")
+    while True:
+        try:
+            # Monitoreo constante
+            sniper_trailing_stop()
+            time.sleep(5) # Revisa cada 5 segundos para no perder el rebote
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(10)
+
+if __name__ == "__main__":
+    ejecutar_bot()
