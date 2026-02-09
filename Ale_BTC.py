@@ -2,14 +2,14 @@ import os, time, pandas as pd
 import numpy as np
 from binance.client import Client
 
-# --- CONFIGURACIÓN DE PRUEBA RÁPIDA ---
+# --- CONFIGURACIÓN PARA SOLANA (MÁS BARATA) ---
 api_key = os.getenv('BINANCE_API_KEY')
 api_secret = os.getenv('BINANCE_API_SECRET')
 client = Client(api_key, api_secret)
 
-symbol = "BTCUSDT"
+symbol = "SOLUSDT" # Cambiamos a Solana
 leverage = 10
-capital_percent = 0.02  # Mantenemos el 2% para seguridad
+capital_percent = 0.05  # 5% es perfecto para SOL (seguro y pasa el mínimo)
 
 def calcular_adx(df, period=14):
     df = df.copy()
@@ -29,18 +29,17 @@ def calcular_adx(df, period=14):
     df['dx'] = 100 * abs(df['+di'] - df['-di']) / (df['+di'] + df['-di'])
     return df['dx'].rolling(window=period).mean().iloc[-1]
 
-def ejecutar_gladiador_veloz():
-    print(f"🔱 SIMULACIÓN ULTRA-RÁPIDA (1 MIN) - {symbol}")
+def ejecutar_gladiador_sol():
+    print(f"🔱 GLADIADOR SOLANA ACTIVADO - 1 MINUTO")
     
     while True:
         try:
-            # CAMBIO A 1 MINUTO (interval='1m')
+            # Sincronizado a 1 minuto para ver acción rápida
             klines = client.futures_klines(symbol=symbol, interval='1m', limit=100)
             df = pd.DataFrame(klines, columns=['time','open','high','low','close','vol','ct','q','n','tb','tq','i'])
             df[['high','low','close']] = df[['high','low','close']].astype(float)
             
             precio = df['close'].iloc[-1]
-            # EMA 20 en 1 minuto reacciona al instante
             ema_20 = df['close'].ewm(span=20, adjust=False).mean().iloc[-1]
             adx_val = calcular_adx(df)
             
@@ -48,37 +47,43 @@ def ejecutar_gladiador_veloz():
             datos_pos = next((p for p in pos if p['symbol'] == symbol), None)
             amt = float(datos_pos['positionAmt']) if datos_pos else 0
             balance = float(client.futures_account_balance()[1]['balance'])
-            distancia = ((precio - ema_20) / ema_20) * 100
 
-            # 🔱 LÓGICA DE GIRO INSTANTÁNEO
+            # 🔱 LÓGICA DE GIRO INSTANTÁNEO + TRAILING STOP
             if amt == 0:
                 if precio < ema_20:
-                    qty = round((balance * capital_percent * leverage) / precio, 3)
+                    qty = round((balance * capital_percent * leverage) / precio, 2)
                     client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=qty)
-                    print(f"📉 [1m] ENTRADA SHORT")
+                    # Trailing Stop de seguridad
+                    client.futures_create_order(symbol=symbol, side='BUY', type='TRAILING_STOP_MARKET', quantity=qty, callbackRate=0.5, workingType='MARK_PRICE')
+                    print(f"📉 [SOL] ENTRADA SHORT + Trailing 0.5%")
                 elif precio > ema_20:
-                    qty = round((balance * capital_percent * leverage) / precio, 3)
+                    qty = round((balance * capital_percent * leverage) / precio, 2)
                     client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=qty)
-                    print(f"🚀 [1m] ENTRADA LONG")
+                    # Trailing Stop de seguridad
+                    client.futures_create_order(symbol=symbol, side='SELL', type='TRAILING_STOP_MARKET', quantity=qty, callbackRate=0.5, workingType='MARK_PRICE')
+                    print(f"🚀 [SOL] ENTRADA LONG + Trailing 0.5%")
 
-            elif amt < 0 and precio > ema_20: # GIRO A LONG
+            # LÓGICA DE GIRO (FLIP)
+            elif amt < 0 and precio > (ema_20 * 1.001): # Margen de 0.1% para evitar ruidos
                 client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=abs(amt))
-                qty = round((balance * capital_percent * leverage) / precio, 3)
+                qty = round((balance * capital_percent * leverage) / precio, 2)
                 client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=qty)
-                print(f"🔄 [1m] GIRO RÁPIDO A LONG")
+                client.futures_create_order(symbol=symbol, side='SELL', type='TRAILING_STOP_MARKET', quantity=qty, callbackRate=0.5, workingType='MARK_PRICE')
+                print(f"🔄 [SOL] GIRO A LONG - El precio rompió la EMA 20")
 
-            elif amt > 0 and precio < ema_20: # GIRO A SHORT
+            elif amt > 0 and precio < (ema_20 * 0.999):
                 client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=abs(amt))
-                qty = round((balance * capital_percent * leverage) / precio, 3)
+                qty = round((balance * capital_percent * leverage) / precio, 2)
                 client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=qty)
-                print(f"🔄 [1m] GIRO RÁPIDO A SHORT")
+                client.futures_create_order(symbol=symbol, side='BUY', type='TRAILING_STOP_MARKET', quantity=qty, callbackRate=0.5, workingType='MARK_PRICE')
+                print(f"🔄 [SOL] GIRO A SHORT - El precio cayó debajo de EMA 20")
 
-            print(f"⏱️ 1min | Precio: {precio:.1f} | EMA20: {ema_20:.1f} | Dist: {distancia:.2f}%")
-            time.sleep(10) # Revisamos cada 10 segundos para no perder el movimiento
+            print(f"📊 SOL: {precio} | EMA20: {ema_20:.2f} | ADX: {adx_val:.1f}")
+            time.sleep(10)
 
         except Exception as e:
             print(f"⚠️ Error: {e}")
             time.sleep(5)
 
 if __name__ == "__main__":
-    ejecutar_gladiador_veloz()
+    ejecutar_gladiador_sol()
