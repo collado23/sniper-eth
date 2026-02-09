@@ -11,11 +11,11 @@ cantidad_prueba = 0.1
 archivo_memoria = "memoria_gladiador.txt"
 precio_extremo = None
 
-def guardar_en_memoria(precio, dist, motivo):
+def guardar_en_memoria(precio, dist, pnl, motivo):
     with open(archivo_memoria, "a") as f:
-        log = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] P: {precio} | D: {dist:.2f}% | {motivo}\n"
+        log = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] P: {precio} | D: {dist:.2f}% | PnL: {pnl:.2f}% | {motivo}\n"
         f.write(log)
-    print(f"📝 {motivo}")
+    print(f"📝 {motivo} | PnL Final: {pnl:.2f}%")
 
 def calcular_adx(df, period=14):
     df = df.copy()
@@ -35,9 +35,9 @@ def calcular_adx(df, period=14):
     df['dx'] = 100 * abs(df['+di'] - df['-di']) / (df['+di'] + df['-di'])
     return df['dx'].rolling(window=period).mean().iloc[-1]
 
-def ejecutar_gladiador_quantum():
+def ejecutar_gladiador_pnl():
     global precio_extremo
-    print(f"🔱 GLADIADOR QUANTUM V4: ESTRATEGIA DE LIBROS JAPONESES")
+    print(f"🔱 GLADIADOR QUANTUM V5: LECTOR DE PnL Y LIBROS JAPONESES ACTIVADO")
     
     while True:
         try:
@@ -50,73 +50,73 @@ def ejecutar_gladiador_quantum():
             ema_20 = df['close'].ewm(span=20, adjust=False).mean().iloc[-1]
             ema_200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
             adx_val = calcular_adx(df)
-            dist_200 = abs(precio - ema_200) / ema_200 * 100
+            dist_200 = (abs(precio - ema_200) / ema_200) * 100
 
-            # --- ANÁLISIS TÉCNICO DE VELAS ---
+            # --- ANÁLISIS DE VELAS ---
             cuerpo = abs(v['close'] - v['open'])
             mecha_sup = v['high'] - max(v['open'], v['close'])
             mecha_inf = min(v['open'], v['close']) - v['low']
             es_roja = v['close'] < v['open']
             es_verde = v['close'] > v['open']
-
-            # PATRONES DE LIBRO (Shooting Star y Hammer)
-            estrella_fugaz = es_roja and mecha_sup > (cuerpo * 1.8) # Confirmación bajista
-            martillo_piso = es_verde and mecha_inf > (cuerpo * 1.8) # Confirmación alcista
+            
+            # Patrones con confirmación de color (como pediste)
+            estrella_fugaz = es_roja and mecha_sup > (cuerpo * 1.8) 
+            martillo_piso = es_verde and mecha_inf > (cuerpo * 1.8)
 
             pos = client.futures_position_information(symbol=symbol)
             datos_pos = next((p for p in pos if p['symbol'] == symbol), None)
             amt = float(datos_pos['positionAmt']) if datos_pos else 0
-
-            # --- LÓGICA DE ENTRADA (CERO ERRORES) ---
+            
+            # --- LÓGICA DE ENTRADA ---
             if amt == 0:
                 precio_extremo = None
-                
-                # 1. GIRO EN EL PICO (ADX > 65) - CAZANDO LA VUELTA
+                # Giro Extremo (ADX > 65)
                 if adx_val > 65:
-                    # BUSCAR VENTA (SHORT): Si está arriba de la EMA y sale la ROJA con mecha
                     if precio > ema_20 and estrella_fugaz:
                         client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=cantidad_prueba)
-                        guardar_en_memoria(precio, dist_200, f"📉 VENTA: Estrella Fugaz Roja (ADX: {adx_val:.1f})")
-                    
-                    # BUSCAR COMPRA (LONG): Si está abajo de la EMA y sale la VERDE con mecha
+                        guardar_en_memoria(precio, dist_200, 0, "📉 SHORT: Estrella Fugaz Roja (ADX > 65)")
                     elif precio < ema_20 and martillo_piso:
                         client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=cantidad_prueba)
-                        guardar_en_memoria(precio, dist_200, f"🚀 COMPRA: Martillo Verde (ADX: {adx_val:.1f})")
-
-                # 2. TENDENCIA SANA (ADX 30-45) - SEGUIR EL FLUJO
+                        guardar_en_memoria(precio, dist_200, 0, "🚀 LONG: Martillo Verde (ADX > 65)")
+                
+                # Tendencia Sana (ADX 30-45)
                 elif 30 < adx_val < 45 and dist_200 < 1.2:
                     if precio > (ema_20 * 1.002) and es_verde:
                         client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=cantidad_prueba)
-                        guardar_en_memoria(precio, dist_200, "🚀 COMPRA: Tendencia Alcista")
+                        guardar_en_memoria(precio, dist_200, 0, "🚀 LONG: Compra por Tendencia")
                     elif precio < (ema_20 * 0.998) and es_roja:
                         client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=cantidad_prueba)
-                        guardar_en_memoria(precio, dist_200, "📉 VENTA: Tendencia Bajista")
+                        guardar_en_memoria(precio, dist_200, 0, "📉 SHORT: Venta por Tendencia")
 
-            # --- LÓGICA DE CIERRE (TRAILING INVISIBLE 0.6%) ---
+            # --- LÓGICA DE CIERRE CON SENSOR DE PnL ---
             elif amt != 0:
+                entrada = float(datos_pos['entryPrice'])
+                # Cálculo de Ganancia (PnL)
+                pnl = ((precio - entrada) / entrada * 100) if amt > 0 else ((entrada - precio) / entrada * 100)
                 if precio_extremo is None: precio_extremo = precio
                 
-                if amt > 0: # En LONG
+                # Margen de cierre dinámico: si ya ganamos 0.4%, cerramos más rápido (0.2%)
+                margen = 0.6 if pnl < 0.4 else 0.2
+                
+                if amt > 0: # En LONG (Verde en Binance)
                     if precio > precio_extremo: precio_extremo = precio
                     caida = (precio_extremo - precio) / precio_extremo * 100
-                    # Cierra si cae 0.6% o si aparece una Estrella Fugaz Roja arriba
-                    if caida > 0.6 or (estrella_fugaz and dist_200 > 1.0):
+                    if caida > margen or (estrella_fugaz and pnl > 0.1):
                         client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=abs(amt))
-                        guardar_en_memoria(precio, dist_200, f"🎯 CIERRE COMPRA (Salida por Vela/Caída)")
+                        guardar_en_memoria(precio, dist_200, pnl, f"🎯 CIERRE LONG (PnL: {pnl:.2f}%)")
                 
-                elif amt < 0: # En SHORT
+                elif amt < 0: # En SHORT (Rojo en Binance si sube)
                     if precio < precio_extremo: precio_extremo = precio
                     rebote = (precio - precio_extremo) / precio_extremo * 100
-                    # Cierra si rebota 0.6% o si aparece un Martillo Verde abajo
-                    if rebote > 0.6 or (martillo_piso and dist_200 > 1.0):
+                    if rebote > margen or (martillo_piso and pnl > 0.1):
                         client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=abs(amt))
-                        guardar_en_memoria(precio, dist_200, f"🎯 CIERRE VENTA (Salida por Vela/Rebote)")
+                        guardar_en_memoria(precio, dist_200, pnl, f"🎯 CIERRE SHORT (PnL: {pnl:.2f}%)")
 
-            print(f"📊 SOL: {precio:.2f} | ADX: {adx_val:.1f} | Dist: {dist_200:.2f}%")
+            print(f"📊 SOL: {precio:.2f} | ADX: {adx_val:.1f} | PnL: {pnl if amt != 0 else 0:.2f}%")
             time.sleep(10)
 
         except Exception as e:
             print(f"⚠️ Error: {e}"); time.sleep(10)
 
 if __name__ == "__main__":
-    ejecutar_gladiador_quantum()
+    ejecutar_gladiador_pnl()
