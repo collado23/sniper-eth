@@ -2,28 +2,33 @@ import pandas as pd
 from binance.client import Client
 import time
 
-# Conexión simple
+# Conexión para datos públicos
 client = Client()
 
-def mostrar_adn_para_copiar():
-    print("⏳ BUSCANDO ADN DE 4 AÑOS... ESPERE UN MOMENTO...")
-    # Bajamos la historia de SOL
+def extraer_datos_para_github():
+    print("⏳ BUSCANDO 4 AÑOS DE HISTORIA... DAME UN MINUTO...")
+    # Bajamos la historia de SOL (Velas de 1 hora para ir rápido)
     klines = client.futures_historical_klines("SOLUSDT", "1h", "1 Jan, 2021")
+    
     df = pd.DataFrame(klines).astype(float)
+    # 4 es el precio de cierre, calculamos la EMA y la distancia
     df['ema'] = df[4].ewm(span=200, adjust=False).mean()
     df['dist'] = ((df[4] - df['ema']) / df['ema']) * 100
     
-    # Filtramos los momentos espejo
+    # Filtramos solo los momentos clave (el espejo)
     espejo = df[abs(df['dist']) > 2.0][[0, 4, 'dist']]
     
-    print("\n" + "="*50)
-    print("👇 COPIÁ DESDE LA SIGUIENTE LÍNEA HASTA EL FINAL 👇")
-    print("fecha,precio,distancia")
+    print("\n" + "="*40)
+    print("👇 COPIÁ DESDE AQUÍ ABAJO 👇")
+    print("fecha,precio,distancia") # Encabezado para GitHub
+    
     for i, row in espejo.iterrows():
-        # Formato simple para que GitHub lo entienda
+        # Imprime: Fecha (en milisegundos), Precio, Distancia
         print(f"{int(row[0])},{row[1]},{row['dist']:.2f}")
-    print("👆 FIN DEL ADN 👆")
-    print("="*50)
+    
+    print("👆 HASTA AQUÍ 👆")
+    print("="*40)
+    print("✅ Proceso terminado. Copiá los números y llevalos a GitHub.")
 
 if __name__ == "__main__":
-    mostrar_adn_para_copiar()
+    extraer_datos_para_github()
