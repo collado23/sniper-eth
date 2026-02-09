@@ -6,114 +6,85 @@ api_key = os.getenv('BINANCE_API_KEY')
 api_secret = os.getenv('BINANCE_API_SECRET')
 client = Client(api_key, api_secret)
 
-symbol = "SOLUSDT"
-cantidad_prueba = 0.1  
+symbol_sol = "SOLUSDT"
+symbol_btc = "BTCUSDT"
+cantidad_prueba = 0.1  # Cantidad de prueba sugerida
 archivo_memoria = "memoria_gladiador.txt"
 
-# --- VARIABLES DE SEGUIMIENTO ---
-precio_maximo_alcanzado = 0
-posicion_abierta = False
+# --- LÍMITES HISTÓRICOS (Inyectados de data externa) ---
+LIMITE_SOL = 2.45 
+LIMITE_BTC = 1.35 
 
-def guardar_en_memoria(precio, dist, adx, pnl, motivo):
-    try:
-        with open(archivo_memoria, "a") as f:
-            log = (f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
-                   f"P: {precio:.2f} | Dist_EMA: {dist:.2f}% | ADX: {adx:.1f} | "
-                   f"ROI: {pnl:.2f}% | MOTIVO: {motivo}\n")
-            f.write(log)
-        print(f"📝 {motivo} | ROI: {pnl:.2f}% | Dist: {dist:.2f}%")
-    except Exception as e:
-        print(f"❌ Error al escribir en TXT: {e}")
+def guardar_en_memoria(sol_p, dist_s, pnl, motivo):
+    with open(archivo_memoria, "a") as f:
+        log = (f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] "
+               f"SOL: {sol_p:.2f} | Dist: {dist_s:.2f}% | "
+               f"ROI: {pnl:.2f}% | MOTIVO: {motivo}\n")
+        f.write(log)
+    print(f"📝 Registro: {motivo} | ROI: {pnl:.2f}%")
 
-def calcular_adx(df, period=14):
-    df = df.copy()
-    df['h-l'] = df['high'] - df['low']
-    df['h-pc'] = abs(df['high'] - df['close'].shift(1))
-    df['l-pc'] = abs(df['low'] - df['close'].shift(1))
-    df['tr'] = df[['h-l', 'h-pc', 'l-pc']].max(axis=1)
-    df['up'] = df['high'] - df['high'].shift(1)
-    df['dn'] = df['low'].shift(1) - df['low']
-    df['+dm'] = np.where((df['up'] > df['dn']) & (df['up'] > 0), df['up'], 0)
-    df['-dm'] = np.where((df['dn'] > df['up']) & (df['dn'] > 0), df['dn'], 0)
-    tr_smooth = df['tr'].rolling(window=period).sum()
-    dm_plus_smooth = df['+dm'].rolling(window=period).sum()
-    dm_minus_smooth = df['-dm'].rolling(window=period).sum()
-    df['+di'] = 100 * (dm_plus_smooth / tr_smooth)
-    df['-di'] = 100 * (dm_minus_smooth / tr_smooth)
-    df['dx'] = 100 * abs(df['+di'] - df['-di']) / (df['+di'] + df['-di'])
-    return df['dx'].rolling(window=period).mean().iloc[-1]
+def ejecutar_gladiador_v7_5():
+    print(f"🔱 GLADIADOR V7.5 ACTIVADO - MODO OPERATIVO")
+    posicion_abierta = False
+    precio_entrada = 0
+    tipo_operacion = None # 'LONG' o 'SHORT'
 
-def ejecutar_gladiador_v6_3():
-    global precio_maximo_alcanzado, posicion_abierta
-    print(f"🔱 GLADIADOR V6.3: MODO ARCHIVISTA Y ELÁSTICO ACTIVADO")
-    
     while True:
         try:
-            klines = client.futures_klines(symbol=symbol, interval='1m', limit=100)
-            df = pd.DataFrame(klines, columns=['t','open','high','low','close','v','ct','q','n','tb','tq','i'])
-            df[['open','high','low','close']] = df[['open','high','low','close']].astype(float)
+            # 1. Obtener datos (Respetando límites de API)
+            k_sol = client.futures_klines(symbol=symbol_sol, interval='1m', limit=100)
+            k_btc = client.futures_klines(symbol=symbol_btc, interval='1m', limit=100)
             
-            v = df.iloc[-1]
-            precio = v['close']
-            ema_200 = df['close'].ewm(span=200, adjust=False).mean().iloc[-1]
-            adx_val = calcular_adx(df)
-            dist_pct = ((precio - ema_200) / ema_200) * 100
+            p_sol = float(k_sol[-1][4])
+            p_btc = float(k_btc[-1][4])
             
-            es_roja = v['close'] < v['open']
-            es_verde = v['close'] > v['open']
-            mecha_sup = v['high'] - max(v['open'], v['close'])
-            mecha_inf = min(v['open'], v['close']) - v['low']
-            cuerpo = abs(v['close'] - v['open'])
+            # Cálculos de EMA 200
+            df_s = pd.DataFrame(k_sol)[4].astype(float)
+            df_b = pd.DataFrame(k_btc)[4].astype(float)
+            ema_s = df_s.ewm(span=200, adjust=False).mean().iloc[-1]
+            ema_b = df_b.ewm(span=200, adjust=False).mean().iloc[-1]
+            
+            dist_s = ((p_sol - ema_s) / ema_s) * 100
+            dist_b = ((p_btc - ema_b) / ema_b) * 100
 
-            pos = client.futures_position_information(symbol=symbol)
-            datos_pos = next((p for p in pos if p['symbol'] == symbol), None)
+            # 2. Revisar posición real en Binance
+            pos = client.futures_position_information(symbol=symbol_sol)
+            datos_pos = next((p for p in pos if p['symbol'] == symbol_sol), None)
             amt = float(datos_pos['positionAmt']) if datos_pos else 0
-            pnl = 0
 
-            # --- LÓGICA DE ENTRADA ---
+            # --- LÓGICA DE ENTRADA (SOL + BTC ACOPLADOS) ---
             if amt == 0:
-                posicion_abierta = False
-                precio_maximo_alcanzado = 0
+                # SHORT: SOL estirado arriba Y BTC estirado arriba
+                if dist_s > LIMITE_SOL and dist_b > (LIMITE_BTC * 0.8):
+                    client.futures_create_order(symbol=symbol_sol, side='SELL', type='MARKET', quantity=cantidad_prueba)
+                    guardar_en_memoria(p_sol, dist_s, 0, "📉 ENTRADA SHORT (Elástico Máximo)")
                 
-                # SHORT: Arriba (+1.80%) + Vela Roja con mecha + ADX alto
-                if dist_pct > 1.80 and es_roja and mecha_sup > cuerpo:
-                    client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=cantidad_prueba)
-                    guardar_en_memoria(precio, dist_pct, adx_val, 0, "📉 ENTRADA SHORT (Elástico + Vela)")
+                # LONG: SOL estirado abajo Y BTC estirado abajo
+                elif dist_s < -LIMITE_SOL and dist_b < -(LIMITE_BTC * 0.8):
+                    client.futures_create_order(symbol=symbol_sol, side='BUY', type='MARKET', quantity=cantidad_prueba)
+                    guardar_en_memoria(p_sol, dist_s, 0, "🚀 ENTRADA LONG (Elástico Máximo)")
 
-                # LONG: Abajo (-1.80%) + Vela Verde con mecha + ADX alto
-                elif dist_pct < -1.80 and es_verde and mecha_inf > cuerpo:
-                    client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=cantidad_prueba)
-                    guardar_en_memoria(precio, dist_pct, adx_val, 0, "🚀 ENTRADA LONG (Elástico + Vela)")
+            # --- LÓGICA DE CIERRE (RETORNO A LA MEDIA) ---
+            else:
+                precio_entrada = float(datos_pos['entryPrice'])
+                pnl = ((p_sol - precio_entrada) / precio_entrada * 100) if amt > 0 else ((precio_entrada - p_sol) / precio_entrada * 100)
+                
+                # Cierre por retorno a la EMA (el elástico vuelve a su sitio)
+                # O cierre por seguridad si el ROI es positivo y empieza a retroceder
+                deberia_cerrar = False
+                if amt > 0 and dist_s > -0.10: deberia_cerrar = True # Volvió a la EMA en Long
+                if amt < 0 and dist_s < 0.10: deberia_cerrar = True  # Volvió a la EMA en Short
 
-            # --- LÓGICA DE SEGUIMIENTO Y CIERRE ---
-            elif amt != 0:
-                if not posicion_abierta:
-                    posicion_abierta = True
-                    precio_maximo_alcanzado = precio
-                
-                entrada = float(datos_pos['entryPrice'])
-                pnl = ((precio - entrada) / entrada * 100) if amt > 0 else ((entrada - precio) / entrada * 100)
-                
-                if amt > 0: # En Long
-                    if precio > precio_maximo_alcanzado: precio_maximo_alcanzado = precio
-                    retroceso = (precio_maximo_alcanzado - precio) / precio_maximo_alcanzado * 100
-                    # Cierre por objetivo de elástico o por vuelta de precio ganando
-                    if dist_pct > 1.80 or (pnl > 0.4 and retroceso > 0.25):
-                        client.futures_create_order(symbol=symbol, side='SELL', type='MARKET', quantity=abs(amt))
-                        guardar_en_memoria(precio, dist_pct, adx_val, pnl, "🎯 CIERRE LONG (Objetivo/Vuelta)")
-                
-                else: # En Short
-                    if precio < precio_maximo_alcanzado: precio_maximo_alcanzado = precio
-                    retroceso = (precio - precio_maximo_alcanzado) / precio_maximo_alcanzado * 100
-                    if dist_pct < -1.80 or (pnl > 0.4 and retroceso > 0.25):
-                        client.futures_create_order(symbol=symbol, side='BUY', type='MARKET', quantity=abs(amt))
-                        guardar_en_memoria(precio, dist_pct, adx_val, pnl, "🎯 CIERRE SHORT (Objetivo/Vuelta)")
+                if deberia_cerrar:
+                    client.futures_create_order(symbol=symbol_sol, side='SELL' if amt > 0 else 'BUY', type='MARKET', quantity=abs(amt))
+                    guardar_en_memoria(p_sol, dist_s, pnl, "🎯 CIERRE: Regreso a la EMA 200")
 
-            print(f"📊 SOL: {precio:.2f} | Dist: {dist_pct:.2f}% | ADX: {adx_val:.1f} | ROI: {pnl:.2f}%")
-            time.sleep(15) 
+            print(f"📊 SOL: {p_sol:.2f} ({dist_s:.2f}%) | BTC: {dist_b:.2f}% | ROI: {pnl if amt != 0 else 0:.2f}%")
+            time.sleep(20)
 
         except Exception as e:
-            print(f"⚠️ Alerta: {e}"); time.sleep(30)
+            print(f"⚠️ Error: {e}")
+            time.sleep(30)
 
 if __name__ == "__main__":
-    ejecutar_gladiador_v6_3()
+    ejecutar_gladiador_v7_5()
