@@ -1,91 +1,102 @@
 import os
 import time
+import socket
 from datetime import datetime, timedelta
 from binance.client import Client
 
-# === 1. CONFIGURACIÓN DE LLAVES ===
+# === 1. CONFIGURACIÓN DE LLAVES (NOMBRES EXACTOS) ===
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 
-# === 2. PARÁMETROS DE ESTRATEGIA (Ajustables) ===
+# === 2. PARÁMETROS DE ESTRATEGIA ===
 CAPITAL_INICIAL = 30.00
 capital_actual = 30.00
-interes_compuesto = 0.20
 palanca = 10
-distancia_gatillo = 2.0  # Elástico
-adx_minimo = 25          # Fuerza
-stop_loss_fijo = -0.8    # Seguridad
-trailing_activacion = 1.5 # Cuando empieza a apretar
+distancia_gatillo = 2.0   # Elástico (2%)
+stop_loss_fijo = -0.8     # Seguridad máxima
+trailing_activacion = 1.5 # Empieza a apretar al 1.5% de ROI
+media_200_fija = 84.34    # Referencia para el elástico
 
-# === 3. CONTADORES ===
+# === 3. CONTADORES DE BATALLA ===
 op_ganadas = 0
 op_perdidas = 0
 inicio_sesion = datetime.now()
 
-# Inicializar Cliente
-client = Client(API_KEY, API_SECRET)
+# === FUNCIÓN DE SEGURIDAD DE RED ===
+def esperar_red():
+    print("⏳ Verificando conexión a internet...")
+    while True:
+        try:
+            socket.create_connection(("8.8.8.8", 53), timeout=3)
+            print("✅ Red detectada. Conectando a Binance...")
+            break
+        except OSError:
+            time.sleep(5)
 
-def obtener_datos():
+# === INICIO DEL MOTOR ===
+esperar_red()
+try:
+    client = Client(API_KEY, API_SECRET)
+    print("✅ CONEXIÓN EXITOSA CON BINANCE API")
+except Exception as e:
+    print(f"❌ ERROR CRÍTICO API: {e}")
+
+def obtener_precio_real():
     try:
         ticker = client.get_symbol_ticker(symbol="SOLUSDT")
         return float(ticker['price'])
-    except:
+    except Exception as e:
+        print(f"⚠️ Error de lectura: {e}")
         return None
 
-def guardar_balance():
-    with open("balance_diario.txt", "a") as f:
-        f.write(f"\n[{datetime.now()}] Capital: ${capital_actual:.2f} | G: {op_ganadas} | P: {op_perdidas}")
-
-print("🚀 MOTOR INICIADO - ESPERANDO PRIMER ESCANEO (15s)...")
-
+# === BUCLE PRINCIPAL (CADA 15 SEGUNDOS) ===
 while True:
     try:
-        precio = obtener_datos()
-        if precio is None: continue
+        precio = obtener_precio_real()
+        if precio is None:
+            time.sleep(5)
+            continue
 
-        # --- LÓGICA DE CÁLCULO (Media 200 estimada o fija para simulación) ---
-        media_200 = 84.34 # Aquí podrías poner una función que la traiga de Binance
-        
-        if precio < media_200:
-            sentido = "LONG (Compra) 🟢"
-            distancia = ((media_200 - precio) / precio) * 100
+        # --- CÁLCULO DE DISTANCIA ---
+        if precio < media_200_fija:
+            sentido = "LONG (Suba) 🟢"
+            distancia = ((media_200_fija - precio) / precio) * 100
         else:
-            sentido = "SHORT (Venta) 🔴"
-            distancia = ((precio - media_200) / precio) * 100
+            sentido = "SHORT (Baja) 🔴"
+            distancia = ((precio - media_200_fija) / precio) * 100
 
-        # --- TABLERO VISUAL EN PANTALLA ---
-        tiempo_vikingo = str(datetime.now() - inicio_sesion).split('.')[0]
+        # --- TABLERO VISUAL ---
+        tiempo_activo = str(datetime.now() - inicio_sesion).split('.')[0]
         
         print("\n" + "═"*50)
-        print(f"🔱 ALE IA QUANTUM | {tiempo_vikingo} ACTIVO")
+        print(f"🔱 ALE IA QUANTUM | {tiempo_activo} EN LÍNEA")
         print(f"💰 CAPITAL: ${capital_actual:.2f} | NETO: ${capital_actual - 30:.2f}")
         print(f"✅ G: {op_ganadas} | ❌ P: {op_perdidas} | 🔄 TOTAL: {op_ganadas+op_perdidas}")
         print("-" * 50)
-        print(f"📈 SOL: ${precio:.2f} | 📏 DIST. 200: {distancia:.2f}%")
-        print(f"📡 DIRECCIÓN: {sentido}")
+        print(f"📈 PRECIO SOL: ${precio:.2f} | 📏 DISTANCIA: {distancia:.2f}%")
+        print(f"📡 ADN DETECTA: {sentido}")
         
-        # --- LÓGICA DE GATILLO ---
+        # --- GATILLO SCALPER ---
         if distancia >= distancia_gatillo:
-            print("🎯 GATILLO DETECTADO - ANALIZANDO ADN...")
-            # Aquí iría tu función de ejecución. 
-            # Si gana: op_ganadas += 1 | capital_actual += ganancia
-            # Si pierde: op_perdidas += 1 | capital_actual -= perdida
+            print("🎯 !!! GATILLO ACTIVADO !!! Analizando ROI y Trailing...")
+            # Lógica interna de simulación aquí
         else:
-            print("🔍 BUSCANDO PUNTO DE ENTRADA...")
+            print("🔍 BUSCANDO ELÁSTICO AL 2.0%")
         
         print("═"*50)
 
-        # --- GUARDAR EN ARCHIVO ---
+        # --- REGISTRO DE ARCHIVOS ---
         with open("analisis_ale.txt", "a") as f:
-            f.write(f"\n{datetime.now().strftime('%H:%M:%S')} | SOL: {precio} | DIST: {distancia:.2f}%")
+            f.write(f"\n[{datetime.now().strftime('%H:%M:%S')}] SOL: {precio} | DIST: {distancia:.2f}% | OP: {op_ganadas+op_perdidas}")
 
-        # --- CIERRE DE CAJA (Cada 24hs) ---
+        # --- REPORTE DIARIO ---
         if datetime.now() >= inicio_sesion + timedelta(hours=24):
-            guardar_balance()
-            print("📢 BALANCE DIARIO GUARDADO EN balance_diario.txt")
+            with open("balance_diario.txt", "a") as f:
+                f.write(f"\nCIERRE 24H: {datetime.now()} | Cap: {capital_actual} | G: {op_ganadas} | P: {op_perdidas}")
+            print("📢 Balance de 24hs guardado.")
 
-        time.sleep(15) # EL CORAZÓN DEL BOT (15 SEGUNDOS)
+        time.sleep(15)
 
     except Exception as e:
-        print(f"⚠️ ERROR: {e}")
+        print(f"⚠️ Error en el bucle: {e}")
         time.sleep(10)
