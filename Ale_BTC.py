@@ -1,74 +1,91 @@
 import os
 import time
+from datetime import datetime, timedelta
 from binance.client import Client
 
-# === CONFIGURACIÓN DE LLAVES (NOMBRES SOLICITADOS) ===
+# === 1. CONFIGURACIÓN DE LLAVES ===
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 
-# === CONFIGURACIÓN DE CUENTA ===
+# === 2. PARÁMETROS DE ESTRATEGIA (Ajustables) ===
 CAPITAL_INICIAL = 30.00
-INTERES_COMPUESTO = 0.20
-PALANCA = 10
-MEDIA_200 = 84.34  # Ajustar según veas la EMA 200 en tu gráfico
-GANANCIA_NETA_ACUMULADA = 0.0
+capital_actual = 30.00
+interes_compuesto = 0.20
+palanca = 10
+distancia_gatillo = 2.0  # Elástico
+adx_minimo = 25          # Fuerza
+stop_loss_fijo = -0.8    # Seguridad
+trailing_activacion = 1.5 # Cuando empieza a apretar
 
-# Inicializar Conexión
-try:
-    client = Client(API_KEY, API_SECRET)
-    print("✅ CONEXIÓN EXITOSA: Leyendo datos reales de Binance.")
-except Exception as e:
-    print(f"❌ ERROR DE CONEXIÓN: Revisar variables en Railway ({e})")
+# === 3. CONTADORES ===
+op_ganadas = 0
+op_perdidas = 0
+inicio_sesion = datetime.now()
 
-def obtener_precio_sol():
+# Inicializar Cliente
+client = Client(API_KEY, API_SECRET)
+
+def obtener_datos():
     try:
         ticker = client.get_symbol_ticker(symbol="SOLUSDT")
         return float(ticker['price'])
     except:
         return None
 
-def ejecutar_bot():
-    global CAPITAL_INICIAL, GANANCIA_NETA_ACUMULADA
-    
-    while True:
-        # --- CICLO DE VELA (15s, 30s, 45s, 60s) ---
-        for segundo in [15, 30, 45, 60]:
-            precio_actual = obtener_precio_sol()
-            if precio_actual is None: continue
+def guardar_balance():
+    with open("balance_diario.txt", "a") as f:
+        f.write(f"\n[{datetime.now()}] Capital: ${capital_actual:.2f} | G: {op_ganadas} | P: {op_perdidas}")
 
-            # Lógica de Elástico (Doble Sentido)
-            if precio_actual < MEDIA_200:
-                sentido = "LONG (Compra) 🟢"
-                distancia = ((MEDIA_200 - precio_actual) / precio_actual) * 100
-            else:
-                sentido = "SHORT (Venta) 🔴"
-                distancia = ((precio_actual - MEDIA_200) / precio_actual) * 100
+print("🚀 MOTOR INICIADO - ESPERANDO PRIMER ESCANEO (15s)...")
 
-            # Reporte en Pantalla y Archivo
-            reporte = (
-                "\n" + "═"*45 +
-                f"\n⏳ RELOJ DE VELA: [{segundo}s / 60s]"
-                f"\n📡 ADN SOLANA 4 AÑOS | MATCH: 98.5%"
-                f"\n{ '🟢' if 'LONG' in sentido else '🔴' } DIRECCIÓN: {sentido}"
-                "\n" + "─"*45 +
-                f"\n📈 PRECIO REAL SOL: ${precio_actual:.2f}"
-                f"\n📊 DISTANCIA A LA 200: {distancia:.2f}%"
-                f"\n🛡️  STOP DINÁMICO: -0.80% | ADX: 26.5"
-                f"\n💰 CAPITAL OPERATIVO: ${CAPITAL_INICIAL:.2f}"
-                f"\n💵 GANANCIA RECUPERADA: ${GANANCIA_NETA_ACUMULADA:.2f}"
-                "\n" + "═"*45
-            )
+while True:
+    try:
+        precio = obtener_datos()
+        if precio is None: continue
 
-            with open("analisis_ale.txt", "a") as f:
-                f.write(reporte)
-            
-            print(reporte)
-            
-            if segundo == 60:
-                print("🎯 CIERRE DE VELA: Analizando Gatillo...")
-                # Aquí el bot decide si entra basado en el 2.0% de distancia
-            
-            time.sleep(15)
+        # --- LÓGICA DE CÁLCULO (Media 200 estimada o fija para simulación) ---
+        media_200 = 84.34 # Aquí podrías poner una función que la traiga de Binance
+        
+        if precio < media_200:
+            sentido = "LONG (Compra) 🟢"
+            distancia = ((media_200 - precio) / precio) * 100
+        else:
+            sentido = "SHORT (Venta) 🔴"
+            distancia = ((precio - media_200) / precio) * 100
 
-if __name__ == "__main__":
-    ejecutar_bot()
+        # --- TABLERO VISUAL EN PANTALLA ---
+        tiempo_vikingo = str(datetime.now() - inicio_sesion).split('.')[0]
+        
+        print("\n" + "═"*50)
+        print(f"🔱 ALE IA QUANTUM | {tiempo_vikingo} ACTIVO")
+        print(f"💰 CAPITAL: ${capital_actual:.2f} | NETO: ${capital_actual - 30:.2f}")
+        print(f"✅ G: {op_ganadas} | ❌ P: {op_perdidas} | 🔄 TOTAL: {op_ganadas+op_perdidas}")
+        print("-" * 50)
+        print(f"📈 SOL: ${precio:.2f} | 📏 DIST. 200: {distancia:.2f}%")
+        print(f"📡 DIRECCIÓN: {sentido}")
+        
+        # --- LÓGICA DE GATILLO ---
+        if distancia >= distancia_gatillo:
+            print("🎯 GATILLO DETECTADO - ANALIZANDO ADN...")
+            # Aquí iría tu función de ejecución. 
+            # Si gana: op_ganadas += 1 | capital_actual += ganancia
+            # Si pierde: op_perdidas += 1 | capital_actual -= perdida
+        else:
+            print("🔍 BUSCANDO PUNTO DE ENTRADA...")
+        
+        print("═"*50)
+
+        # --- GUARDAR EN ARCHIVO ---
+        with open("analisis_ale.txt", "a") as f:
+            f.write(f"\n{datetime.now().strftime('%H:%M:%S')} | SOL: {precio} | DIST: {distancia:.2f}%")
+
+        # --- CIERRE DE CAJA (Cada 24hs) ---
+        if datetime.now() >= inicio_sesion + timedelta(hours=24):
+            guardar_balance()
+            print("📢 BALANCE DIARIO GUARDADO EN balance_diario.txt")
+
+        time.sleep(15) # EL CORAZÓN DEL BOT (15 SEGUNDOS)
+
+    except Exception as e:
+        print(f"⚠️ ERROR: {e}")
+        time.sleep(10)
