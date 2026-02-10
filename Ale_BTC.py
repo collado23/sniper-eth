@@ -3,86 +3,91 @@ import time
 from datetime import datetime
 from binance.client import Client
 
-# === CONFIGURACIÓN DE CONEXIÓN ===
+# === CONFIGURACIÓN ===
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 client = Client(API_KEY, API_SECRET)
 
-# === PARÁMETROS ADN (Frecuencia 14s) ===
+# === PARÁMETROS AMETRALLADORA NETA ===
 espera_segundos = 14
-distancia_x_gatillo = 2.0
-dx_minimo = 25
-dx_maximo = 65
-objetivo_neto = 1.5
+distancia_x_gatillo = 0.7   # Gatillo fácil: se activa con poco estiramiento
 palanca = 10
+ganancia_neta_objetivo = 0.5 # Lo que querés ganar vos (0.5%)
+comision_total = 0.2         # Lo que se lleva Binance (0.1% entra + 0.1% sale)
+meta_bruta = ganancia_neta_objetivo + comision_total # El bot busca 0.7% para darte 0.5%
+
 archivo_memoria = "memoria_quantum.txt"
 
-# === CONTADORES DE CAJA ===
+# === ESTADO DE CAJA ===
 capital_base = 30.00
 ganancia_hoy = 0.0
 perdida_hoy = 0.0
 contador_ops = 0
 en_operacion = False
 
-def escribir_biblioteca(tipo, mensaje, resultado=0):
+def registrar(tipo, msg, valor=0):
     global contador_ops, ganancia_hoy, perdida_hoy
-    ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    ts = datetime.now().strftime('%H:%M:%S')
     with open(archivo_memoria, "a") as f:
-        f.write(f"[{ts}] {tipo} | {mensaje}\n")
+        f.write(f"[{ts}] {tipo} | {msg}\n")
     if tipo == "CIERRE":
         contador_ops += 1
-        if resultado > 0: ganancia_hoy += resultado
-        else: perdida_hoy += abs(resultado)
+        if valor > 0: ganancia_hoy += valor
+        else: perdida_hoy += abs(valor)
+        # Análisis automático cada 20
         if contador_ops % 20 == 0:
             with open(archivo_memoria, "a") as f:
-                f.write(f"\n--- 🧠 ANÁLISIS UNO (OP {contador_ops}) ---\n")
+                f.write(f"\n--- 🧠 ANÁLISIS UNO (OP {contador_ops}) | NETO HOY: ${ganancia_hoy - perdida_hoy:.2f} ---\n")
 
-def obtener_datos():
-    try:
-        ticker = client.get_symbol_ticker(symbol="SOLUSDT")
-        precio = float(ticker['price'])
-        klines = client.get_klines(symbol='SOLUSDT', interval=Client.KLINE_INTERVAL_1MINUTE, limit=100)
-        cierre = [float(k[4]) for k in klines]
-        ema_200 = sum(cierre) / len(cierre)
-        dx = round(((max(cierre[-14:]) - min(cierre[-14:])) / ema_200 * 1000), 2)
-        v_verdes = sum(1 for i in range(-3, 0) if float(klines[i][4]) > float(klines[i][1]))
-        return precio, ema_200, dx, v_verdes, (3 - v_verdes)
-    except: return 0, 0, 0, 0, 0
-
-print(f"🔱 MOTOR REINICIADO - FRECUENCIA: {espera_segundos}s")
+print(f"🔥 AMETRALLADORA NETA ACTIVADA - BUSCANDO {ganancia_neta_objetivo}% LIMPIO")
 
 while True:
     try:
-        precio, ema, dx, verdes, rojas = obtener_datos()
-        if precio == 0: continue
+        # Datos rápidos de SOL y BTC
+        ticker_sol = client.get_symbol_ticker(symbol="SOLUSDT")
+        p_sol = float(ticker_sol['price'])
+        ticker_btc = client.get_symbol_ticker(symbol="BTCUSDT")
+        p_btc = float(ticker_btc['price'])
         
-        distancia_x = abs(((ema - precio) / precio) * 100)
-        neto_hoy = ganancia_hoy - perdida_hoy
+        klines = client.get_klines(symbol='SOLUSDT', interval=Client.KLINE_INTERVAL_1MINUTE, limit=50)
+        cierre = [float(k[4]) for k in klines]
+        ema = sum(cierre) / len(cierre)
+        dist_x = abs(((ema - p_sol) / p_sol) * 100)
+        
+        neto_real = ganancia_hoy - perdida_hoy
 
-        print("\n" + "═"*55)
-        print(f"🔱 ALE IA QUANTUM | {datetime.now().strftime('%H:%M:%S')}")
-        print(f"💎 PRECIO SOL: ${precio:.2f}")
-        print(f"💰 CAP: ${capital_base + neto_hoy:.2f} | 📈 NETO REAL: ${neto_hoy:.2f}")
-        print(f"✅ GANANCIA: +${ganancia_hoy:.2f} | ❌ PÉRDIDA: -${perdida_hoy:.2f}")
-        print("-" * 55)
-        print(f"📏 DIST X: {distancia_x:.2f}% | ⚡ DX: {dx} | 🕯️ {verdes}V/{rojas}R")
-        print(f"🔢 OPS: {contador_ops}/20 (Hacia ANÁLISIS UNO)")
-        print("═"*55)
+        # --- TABLERO AMETRALLADORA ---
+        print("\n" + "═"*50)
+        print(f"🔱 ALE IA AMETRALLADORA | {datetime.now().strftime('%H:%M:%S')}")
+        print(f"💎 SOL: ${p_sol:.2f} | 🍊 BTC: ${p_btc:.0f}")
+        print(f"💰 CAP: ${capital_base + neto_real:.2f} | 📈 NETO: ${neto_real:.2f}")
+        print(f"✅ GAN: +${ganancia_hoy:.2f} | ❌ PERD: -${perdida_hoy:.2f}")
+        print(f"🔢 OPS: {contador_ops}/20 | 📏 DIST X: {dist_x:.2f}%")
+        print("═"*50)
 
         if not en_operacion:
-            sentido = "LONG 🟢" if precio < ema else "SHORT 🔴"
-            confirmacion = (verdes >= 1 if sentido == "LONG 🟢" else rojas >= 1)
-            if distancia_x >= distancia_x_gatillo and dx_minimo <= dx <= dx_maximo and confirmacion:
+            # Entrada rápida por distancia
+            if dist_x >= distancia_x_gatillo:
                 en_operacion = True
-                precio_entrada = precio
-                tipo_op = sentido
-                escribir_biblioteca("GATILLO", f"Entrada {sentido} a ${precio}")
+                p_entrada = p_sol
+                tipo_op = "LONG 🟢" if p_sol < ema else "SHORT 🔴"
+                registrar("ENTRADA", f"{tipo_op} en ${p_sol} (BTC: ${p_btc})")
         else:
-            roi = (((precio - precio_entrada) / precio_entrada) * 100 * palanca) if "LONG" in tipo_op else (((precio_entrada - precio) / precio_entrada) * 100 * palanca)
-            roi_neto = roi - 0.20
-            if roi_neto >= objetivo_neto or roi_neto <= -0.8:
-                escribir_biblioteca("CIERRE", f"{tipo_op} Fin", (capital_base * (roi_neto/100)))
+            # Cálculo de ROI Bruto
+            if "LONG" in tipo_op:
+                roi_bruto = ((p_sol - p_entrada) / p_entrada) * 100 * palanca
+            else:
+                roi_bruto = ((p_entrada - p_sol) / p_entrada) * 100 * palanca
+            
+            # ROI Neto = Bruto - Gastos de Binance
+            roi_neto = roi_bruto - comision_total
+            
+            # CIERRE: Si llegamos al 0.5% neto o perdemos 0.7% neto (Stop Loss)
+            if roi_neto >= ganancia_neta_objetivo or roi_neto <= -0.7:
+                ganancia_limpia = (capital_base * (roi_neto / 100))
+                registrar("CIERRE", f"{tipo_op} Neto: {roi_neto:.2f}% | P_SALIDA: ${p_sol}", ganancia_limpia)
                 en_operacion = False
+                print(f"🎯 ¡PUM! Ametralladora cobró: {roi_neto:.2f}% neto.")
 
         time.sleep(espera_segundos)
     except Exception as e:
