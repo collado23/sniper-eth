@@ -1,4 +1,4 @@
-import time
+import time 
 import os
 
 # === INGENIERÍA ALE IA QUANTUM - SOL 1 MINUTO ===
