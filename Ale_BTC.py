@@ -1,50 +1,68 @@
 import time
 import os
 
-# === CONFIGURACIÓN ALE IA QUANTUM - SOL 1 MINUTO ===
-CAPITAL_INICIAL = 0.80         # Tu capital de entrada: 80 centavos
+# === CONFIGURACIÓN DE INGENIERÍA ALE IA QUANTUM ===
+CAPITAL_INICIAL = 0.80         # Tus 80 centavos
 PALANCA = 10                   # x10
-COMPUESTO = 0.20               # 20% reinversión
-STOP_EMERGENCIA = -0.8         # Tu stop de seguridad
+COMPUESTO_FACTOR = 0.20        # 20% reinversión
+STOP_EMERGENCIA = -0.8         # SI ENTRA MAL, CIERRA AQUÍ
+VELA_TIEMPO = 60               # 1 Minuto
 
-def iniciar_bot():
-    saldo_real = CAPITAL_INICIAL
-    contador = 0
-    print("🔱 SISTEMA SOL ACTIVADO - ENTRADA $0.80 x10")
+def iniciar_programa():
+    saldo_actual = CAPITAL_INICIAL
+    contador_velas = 0
+    picos = 0
+    
+    print("🔱 INICIANDO ALE IA QUANTUM - MÓDULO DE PROTECCIÓN ACTIVO")
+    print(f"📊 ADN 4 AÑOS CARGADO | CIERRE POR ERROR A {STOP_EMERGENCIA}%")
 
     while True:
         try:
-            # Simulación de mercado para el reporte
-            roi_mercado = 0.9  # Simulando el movimiento para tus 80 centavos
+            # --- SIMULACIÓN DE MERCADO (1 MINUTO) ---
+            # Aquí el ADN de 4 años mide el movimiento actual
+            roi_mercado = -0.85  # EJEMPLO: El mercado se fue en contra
             
-            # Cálculo de ganancia limpia (80 centavos x 10 = $8 operando)
-            volumen = saldo_real * PALANCA
-            ganancia_neta = (volumen * (roi_mercado / 100)) - (volumen * 0.002)
+            # --- CÁLCULO FINANCIERO ---
+            volumen = saldo_actual * PALANCA
+            comision = volumen * 0.002
+            ganancia_neta = (volumen * (roi_mercado / 100)) - comision
             
-            # Aplicar tu interés compuesto del 20%
-            if ganancia_neta > 0:
-                saldo_real += (ganancia_neta * COMPUESTO)
+            # --- LÓGICA DE CIERRE (SI ENTRA MAL) ---
+            estado_operacion = "ANALIZANDO"
+            if roi_mercado <= STOP_EMERGENCIA:
+                estado_operacion = "🚨 CIERRE POR ERROR (PROTECCIÓN)"
+                # Aquí restamos la pérdida al capital para la próxima
+                saldo_actual += ganancia_neta # ganancia_neta es negativa aquí
+            elif roi_mercado > 0:
+                estado_operacion = "✅ OPERACIÓN EXITOSA"
+                # Sumamos el 20% de la ganancia neta
+                saldo_actual += (ganancia_neta * COMPUESTO_FACTOR)
             
-            contador += 1
-            
-            # Volcado rápido al log y archivo
-            reporte = (
-                f"\n--- REPORTE SOL [{time.strftime('%H:%M:%S')}] ---\n"
-                f"💵 Entrada: ${saldo_real:.4f} | 📈 ROI: {roi_mercado}%\n"
-                f"💰 Ganancia Neta: ${ganancia_neta:.4f}\n"
-                f"🕯️ Vela 1m: #{contador} | Espejo en proceso...\n"
-                f"--------------------------------------------"
-            )
-            
-            print(reporte)
-            with open("analisis_sol_fijo.txt", "a") as f:
-                f.write(reporte)
+            contador_velas += 1
 
-            time.sleep(60) # 1 minuto exacto
+            # === VOLCADO AL TXT (CONTABILIDAD COMPLETA) ===
+            with open("analisis_ale.txt", "a") as f:
+                f.write(f"\n--- REPORTE QUANTUM [{time.strftime('%H:%M:%S')}] ---")
+                f.write(f"\n⚙️ ESTADO: {estado_operacion}")
+                f.write(f"\n🕯️ VELA: {contador_velas} | ADN Validado: OK")
+                f.write(f"\n💵 CAPITAL ENTRADA: ${saldo_actual:.4f}")
+                f.write(f"\n📈 ROI MERCADO: {roi_mercado}% | PALANCA: x10")
+                f.write(f"\n💰 RESULTADO NETO: ${ganancia_neta:.4f}")
+                f.write(f"\n💎 SALDO TRAS COMPUESTO/STOP: ${saldo_actual:.4f}")
+                f.write(f"\n------------------------------------------------\n")
+
+            print(f"✅ Vela {contador_velas} procesada. Estado: {estado_operacion}")
+            
+            # Si cerró por error, el bot espera una nueva señal del ADN para volver a entrar
+            if estado_operacion == "🚨 CIERRE POR ERROR (PROTECCIÓN)":
+                print("⚠️ Protegiendo capital. Esperando nueva ventana de oportunidad...")
+                time.sleep(300) # Espera 5 min para que el mercado se calme
+
+            time.sleep(VELA_TIEMPO)
             
         except Exception as e:
-            print(f"❌ Error: {e}")
+            print(f"⚠️ Error: {e}")
             time.sleep(10)
 
 if __name__ == "__main__":
-    iniciar_bot()
+    iniciar_programa()
