@@ -3,21 +3,21 @@ import time
 from datetime import datetime
 from binance.client import Client
 
-# === CONFIGURACIÓN ===
+# === CONFIGURACIÓN DE CONEXIÓN ===
 API_KEY = os.getenv('BINANCE_API_KEY')
 API_SECRET = os.getenv('BINANCE_API_SECRET')
 client = Client(API_KEY, API_SECRET)
 
-# === PARÁMETROS MAESTROS AJUSTADOS ===
-espera_segundos = 14        # <--- Subido a 14 como pediste
-distancia_x_gatillo = 2.0   
-dx_minimo = 25              
-dx_maximo = 65              
-objetivo_neto = 1.5         
+# === PARÁMETROS ADN (Frecuencia 14s) ===
+espera_segundos = 14
+distancia_x_gatillo = 2.0
+dx_minimo = 25
+dx_maximo = 65
+objetivo_neto = 1.5
 palanca = 10
 archivo_memoria = "memoria_quantum.txt"
 
-# === ESTADO DE CAJA ===
+# === CONTADORES DE CAJA ===
 capital_base = 30.00
 ganancia_hoy = 0.0
 perdida_hoy = 0.0
@@ -49,7 +49,7 @@ def obtener_datos():
         return precio, ema_200, dx, v_verdes, (3 - v_verdes)
     except: return 0, 0, 0, 0, 0
 
-print(f"🚀 MOTOR REINICIADO - FRECUENCIA: {espera_segundos}s")
+print(f"🔱 MOTOR REINICIADO - FRECUENCIA: {espera_segundos}s")
 
 while True:
     try:
@@ -59,18 +59,16 @@ while True:
         distancia_x = abs(((ema - precio) / precio) * 100)
         neto_hoy = ganancia_hoy - perdida_hoy
 
-        # --- CUADRO DE MANDO ACTUALIZADO ---
         print("\n" + "═"*55)
         print(f"🔱 ALE IA QUANTUM | {datetime.now().strftime('%H:%M:%S')}")
         print(f"💎 PRECIO SOL: ${precio:.2f}")
-        print(f"💰 CAP: ${capital_base + neto_hoy:.2f} | 📈 NETO HOY: ${neto_hoy:.2f}")
-        print(f"✅ GAN: +${ganancia_hoy:.2f} | ❌ PERD: -${perdida_hoy:.2f}")
+        print(f"💰 CAP: ${capital_base + neto_hoy:.2f} | 📈 NETO REAL: ${neto_hoy:.2f}")
+        print(f"✅ GANANCIA: +${ganancia_hoy:.2f} | ❌ PÉRDIDA: -${perdida_hoy:.2f}")
         print("-" * 55)
         print(f"📏 DIST X: {distancia_x:.2f}% | ⚡ DX: {dx} | 🕯️ {verdes}V/{rojas}R")
-        print(f"🔢 OPS: {contador_ops}/20 (ANÁLISIS UNO)")
+        print(f"🔢 OPS: {contador_ops}/20 (Hacia ANÁLISIS UNO)")
         print("═"*55)
 
-        # Lógica de operación (Dual y 1.5% Neto)
         if not en_operacion:
             sentido = "LONG 🟢" if precio < ema else "SHORT 🔴"
             confirmacion = (verdes >= 1 if sentido == "LONG 🟢" else rojas >= 1)
