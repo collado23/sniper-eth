@@ -1,46 +1,51 @@
 import time
 import os
 
-# CONFIGURACIÓN ALE IA QUANTUM   
-ENTRADA = 0.80
-PALANCA = 10
-STOP_EMERGENCIA = -0.8  # Cierra si entra mal
-COMPUESTO = 0.20
+# === INGENIERÍA ALE IA QUANTUM - SOL 1 MINUTO ===
+CAPITAL_ENTRADA = 0.80   # Tus 80 centavos
+PALANCA = 10             # x10
+COMPUESTO = 0.20         # 20% reinversión
+STOP_EMERGENCIA = -0.8   # SI ENTRA MAL, CIERRA AQUÍ (Protección)
 
-def programa_principal():
-    saldo = ENTRADA
+def iniciar():
+    saldo = CAPITAL_ENTRADA
     vela = 0
-    # CREAR EL ARCHIVO TXT SI NO EXISTE
-    if not os.path.exists("analisis_ale.txt"):
-        with open("analisis_ale.txt", "w") as f:
-            f.write("--- INICIO DE INGENIERÍA SOL ---\n")
-
-    print("🔱 PROGRAMA ACTIVO - ESPERANDO ADN 4 AÑOS")
+    print("🔱 ADN 4 AÑOS CARGADO - SISTEMA DE PROTECCIÓN ACTIVO")
 
     while True:
-        # Simulamos lectura de mercado (Aquí va tu ADN)
-        roi = 0.5 # Ejemplo de ROI
-        
-        # Lógica de Finanzas y Cierre
-        volumen = saldo * PALANCA
-        ganancia_neta = (volumen * (roi / 100)) - (volumen * 0.002)
-        
-        status = "OPERANDO"
-        if roi <= STOP_EMERGENCIA:
-            status = "🚨 CIERRE POR ERROR"
-            saldo += ganancia_neta # Resta la pérdida
-        elif roi > 0:
-            status = "✅ GANANCIA"
-            saldo += (ganancia_neta * COMPUESTO)
+        try:
+            # --- Simulación ADN (Busca el rebote del elástico) ---
+            roi = 0.90  # Ejemplo de movimiento de SOL
+            
+            # --- Finanzas x10 ---
+            volumen = saldo * PALANCA
+            comision = volumen * 0.002 # 0.1% entrada + 0.1% salida
+            ganancia_neta = (volumen * (roi / 100)) - comision
+            
+            # --- Lógica de Cierre por Error o Ganancia ---
+            status = "ANALIZANDO"
+            if roi <= STOP_EMERGENCIA:
+                status = "🚨 CIERRE POR ERROR (STOP)"
+                saldo += ganancia_neta # Asume la pérdida para proteger
+            elif roi > 0:
+                status = "✅ GANANCIA (INTERÉS COMPUESTO)"
+                saldo += (ganancia_neta * COMPUESTO)
 
-        vela += 1
-        
-        # ESCRIBIR AL TXT
-        with open("analisis_ale.txt", "a") as f:
-            f.write(f"[{time.strftime('%H:%M:%S')}] VELA: {vela} | STATUS: {status} | SALDO: ${saldo:.4f}\n")
-        
-        print(f"✅ Vela {vela} escrita en TXT. Saldo: ${saldo:.4f}")
-        time.sleep(60)
+            vela += 1
+            
+            # --- ESCRIBIR AL TXT (Lo que vos necesitás ver) ---
+            with open("analisis_ale.txt", "a") as f:
+                f.write(f"\n--- REPORTE [{time.strftime('%H:%M:%S')}] ---")
+                f.write(f"\n🕯️ VELA: {vela} | STATUS: {status}")
+                f.write(f"\n💵 CAPITAL: ${saldo:.4f} | NETO: ${ganancia_neta:.4f}")
+                f.write(f"\n--------------------------------------------\n")
+            
+            print(f"✅ Vela {vela} procesada. Saldo: ${saldo:.4f}")
+            time.sleep(60) # 1 minuto exacto
+            
+        except Exception as e:
+            print(f"⚠️ Error: {e}")
+            time.sleep(10)
 
 if __name__ == "__main__":
-    programa_principal()
+    iniciar()
