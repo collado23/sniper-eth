@@ -5,7 +5,7 @@ import os
 CAPITAL_ENTRADA = 0.80   # Tus 80 centavos
 PALANCA = 10             # x10
 COMPUESTO = 0.20         # 20% reinversión
-STOP_EMERGENCIA = -0.8   # Protección: Si baja de esto, CIERRA.
+STOP_EMERGENCIA = -0.8   # Protección: Si baja de esto, CIERRA. 
 
 def iniciar():
     saldo = CAPITAL_ENTRADA
