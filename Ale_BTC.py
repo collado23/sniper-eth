@@ -1,6 +1,6 @@
 import time
 
-# === CONFIGURACIÓN DE INGENIERÍA SOL 1 MINUTO (x10) ===
+# === CONFIGURACIÓN DE INGENIERÍA SOL 1 MINUTO (x10) === 
 CAPITAL_INICIAL = 10.0          # Tus $10 USD reales
 APALANCAMIENTO = 10             # x10
 INTERES_COMPUESTO_FACTOR = 0.20 # 20% para reinvertir
