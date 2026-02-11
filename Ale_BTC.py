@@ -1,17 +1,19 @@
-import os 
+import os
 import time
 from datetime import datetime
 from binance.client import Client
 
 # === CONEXIÓN ===
-client = Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
+try:
+    client = Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
+except Exception as e:
+    print(f"Error de conexión inicial: {e}")
 
-# === PARÁMETROS DE PRECISIÓN ===
+# === PARÁMETROS ===
 espera_segundos = 14
 palanca = 10
 ganancia_neta_ale = 0.50 
 comision = 0.20
-meta_bruta = ganancia_neta_ale + comision # 0.70% ROI para ganar
 archivo_memoria = "memoria_quantum.txt"
 
 # === ESTADO ===
@@ -24,65 +26,69 @@ en_operacion = False
 def registrar(tipo, msg, valor=0):
     global contador_ops, ganancia_hoy, perdida_hoy
     ts = datetime.now().strftime('%H:%M:%S')
-    with open(archivo_memoria, "a") as f:
-        f.write(f"[{ts}] {tipo} | {msg}\n")
+    try:
+        with open(archivo_memoria, "a") as f:
+            f.write(f"[{ts}] {tipo} | {msg}\n")
+    except: pass
     if tipo == "CIERRE":
         contador_ops += 1
         if valor > 0: ganancia_hoy += valor
         else: perdida_hoy += abs(valor)
 
-print("🚀 IA QUANTUM: MODO LECTURA DE VELAS ACTIVADO")
+print("🚀 IA QUANTUM: MODO ANTI-PAUSA ACTIVADO")
 
 while True:
     try:
-        # 1. ANÁLISIS DE LA VELA ACTUAL Y ANTERIORES
-        klines = client.get_klines(symbol='SOLUSDT', interval=Client.KLINE_INTERVAL_1MINUTE, limit=5)
+        # 1. CAPTURA DE PRECIOS
+        ticker = client.get_symbol_ticker(symbol="SOLUSDT")
+        p_sol = float(ticker['price'])
         
-        # Vela actual (en formación)
+        # 2. LECTURA DE VELAS (Aseguramos que no falle)
+        klines = client.get_klines(symbol='SOLUSDT', interval=Client.KLINE_INTERVAL_1MINUTE, limit=3)
+        if not klines or len(klines) < 3:
+            time.sleep(5)
+            continue
+
         v_actual_open = float(klines[-1][1])
-        v_actual_last = float(klines[-1][4])
-        
-        # Velas cerradas para tendencia
-        v1_close = float(klines[-2][4])
-        v1_open = float(klines[-2][1])
-        
-        # BTC para confirmar dirección
-        p_btc = float(client.get_symbol_ticker(symbol="BTCUSDT")['price'])
+        v_anterior_close = float(klines[-2][4])
         
         neto_total = ganancia_hoy - perdida_hoy
 
-        # 2. TABLERO DE MANDO
-        print(f"\n🔱 VELAS | SOL: ${v_actual_last:.2f} | BTC: ${p_btc:.0f}")
-        print(f"💰 NETO: ${neto_total:.2f} | OPS: {contador_ops}/20")
-        print(f"🕯️ VELA ACTUAL: {'SUBIENDO 🟢' if v_actual_last > v_actual_open else 'BAJANDO 🔴'}")
-        print("-" * 45)
+        # --- TABLERO EN PANTALLA ---
+        print(f"\n🔱 VELAS | SOL: ${p_sol:.2f} | NETO: ${neto_total:.2f}")
+        print(f"🕯️ ACTUAL: {'VERDE 🟢' if p_sol > v_actual_open else 'ROJA 🔴'}")
+        print(f"🔢 OPS: {contador_ops}/20")
+        print("-" * 40)
 
         if not en_operacion:
-            # LÓGICA DE ANTICIPACIÓN
-            # Entra LONG si la actual supera el cierre anterior y es verde
-            if v_actual_last > v_actual_open and v_actual_last > v1_close:
+            # LÓGICA DE PULSO: Si la vela actual rompe el cierre de la anterior
+            # Y el color coincide, entramos por el patrón de 3 velas.
+            if p_sol > v_actual_open and p_sol > v_anterior_close:
                 en_operacion = True
-                p_entrada = v_actual_last
+                p_entrada = p_sol
                 tipo_op = "LONG 🟢"
-                registrar("ENTRADA", f"LONG Anticipado a ${v_actual_last} (Fuerza alcista)")
+                registrar("ENTRADA", f"LONG en ${p_sol} (Rompe al alza)")
             
-            # Entra SHORT si la actual rompe el mínimo anterior y es roja
-            elif v_actual_last < v_actual_open and v_actual_last < v1_close:
+            elif p_sol < v_actual_open and p_sol < v_anterior_close:
                 en_operacion = True
-                p_entrada = v_actual_last
+                p_entrada = p_sol
                 tipo_op = "SHORT 🔴"
-                registrar("ENTRADA", f"SHORT Anticipado a ${v_actual_last} (Fuerza bajista)")
+                registrar("ENTRADA", f"SHORT en ${p_sol} (Rompe a la baja)")
         
         else:
-            # GESTIÓN DE SALIDA (Ametralladora 0.5% Neto)
-            diff = ((v_actual_last - p_entrada) / p_entrada) if "LONG" in tipo_op else ((p_entrada - v_actual_last) / p_entrada)
+            # GESTIÓN DE SALIDA AMETRALLADORA
+            diff = ((p_sol - p_entrada) / p_entrada) if "LONG" in tipo_op else ((p_entrada - p_sol) / p_entrada)
             roi_neto = (diff * 100 * palanca) - comision
             
+            # Cierre rápido 0.5% Neto o Protección -0.7%
             if roi_neto >= ganancia_neta_ale or roi_neto <= -0.7:
                 res = (capital_base * (roi_neto / 100))
                 registrar("CIERRE", f"{tipo_op} ROI: {roi_neto:.2f}%", res)
                 en_operacion = False
+                print(f"🎯 COBRADO: {roi_neto:.2f}%")
 
         time.sleep(espera_segundos)
-    except:
-        time.sleep(5)
+
+    except Exception as e:
+        print(f"⚠️ Error evitado: {e}")
+        time.sleep(10) # Espera un poco más si hay error para no saturar
