@@ -21,27 +21,23 @@ def calcular_cerebro(df):
     return df
 
 def ni(df):
-    act = df.iloc[-1]
-    prev = df.iloc[-2]
+    act = df.iloc[-1]; prev = df.iloc[-2]
     cuerpo = abs(act['close'] - act['open']) or 0.001
-    
-    # --- LÓGICA PARA COMPRAS (LONG) ---
+    # LONG
     l_ok = (act['close'] > act['ema_200']) and (act['ema_35'] > act['ema_50'])
     m_inf = act['open'] - act['low'] if act['close'] > act['open'] else act['close'] - act['low']
     if l_ok:
-        if (m_inf > cuerpo * 3.0) and (act['acel'] > 0): return "🔨" # Martillo más exigente
-        if (act['close'] > prev['high']) and (act['z_score'] < 1.8): return "V" # Envolvente temprana
-
-    # --- LÓGICA PARA VENTAS (SHORT) ---
+        if (m_inf > cuerpo * 3.0) and (act['acel'] > 0): return "🔨"
+        if (act['close'] > prev['high']) and (act['z_score'] < 1.8): return "V"
+    # SHORT
     s_ok = (act['close'] < act['ema_200']) and (act['ema_35'] < act['ema_50'])
     m_sup = act['high'] - act['close'] if act['close'] > act['open'] else act['high'] - act['open']
     if s_ok:
-        if (m_sup > cuerpo * 2.2) and (act['acel'] < 0): return "☄️" # Estrella más sensible (caída rápida)
-        if (act['close'] < prev['low']) and (act['z_score'] < 2.2): return "R" # Envolvente con más margen
-
+        if (m_sup > cuerpo * 2.2) and (act['acel'] < 0): return "☄️"
+        if (act['close'] < prev['low']) and (act['z_score'] < 2.2): return "R"
     return "."
 
-print(f"🔱 ESTRATEGIA DUAL ON | CAP: ${cap_actual} | 15s")
+print(f"🔱 SCALPER QUANTUM ON | CAP: ${cap_actual} | 15s")
 
 while True:
     try:
@@ -61,17 +57,19 @@ while True:
                     s['p'], s['e'], s['m'], s['b'] = px, True, -9.0, False
                     print(f"\n🎯 IN {m} {s['t']} ({ptr})")
             else:
+                # --- NÚCLEO TÁCTICO SCALPER ---
                 df_p = (px - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px) / s['p']
-                roi = (df_p * 100 * 10) - 0.22
+                roi = (df_p * 100 * 10) - 0.20 # Apalancamiento x10 - Comisiones
+                
                 if roi > s['m']: s['m'] = roi
-                if roi >= 0.12: s['b'] = True 
+                if roi >= 0.08: s['b'] = True # Breakeven Agresivo
+
+                # Trailing Stop "Scalper"
+                distancia = 0.08 if s['t'] == "SHORT" else 0.12
+                t_stop = (roi <= (s['m'] - distancia)) if s['m'] >= 0.25 else False
                 
-                # --- TRAILING STOP DIFERENCIADO ---
-                # En SHORT el trailing es más pegado (0.10) porque el rebote es súbito
-                distancia = 0.15 if s['t'] == "LONG" else 0.10
-                t_stop = (roi <= (s['m'] - distancia)) if s['m'] >= 0.35 else False
-                
-                if (s['b'] and roi <= 0.01) or t_stop or roi <= -0.48:
+                # Cierre de Operación
+                if (s['b'] and roi <= 0.02) or t_stop or roi <= -0.45:
                     gan = (cap_actual * (roi / 100))
                     cap_actual += gan
                     s['o'] += 1; s['e'] = False
