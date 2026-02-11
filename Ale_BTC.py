@@ -8,15 +8,15 @@ def conectar():
 
 client = conectar()
 
-# === CONFIGURACIÓN $30.76 (Apalancamiento x10) ===
+# === CONFIGURACIÓN $30.76 ===
 cap_base = 30.76
 ganado, perdido = 0.0, 0.0
 ops_ganadas, ops_perdidas, ops_totales = 0, 0, 0
 en_op = False
 historial_bloque = []
 
-def libro_nison_agresivo(k1, k2):
-    """Matemática de Steve Nison con filtro 2.5x (Más agresivo)"""
+def libro_nison_blindado(k1, k2):
+    """Matemática de Nison con Filtro 2.5x"""
     op, hi, lo, cl = float(k1[1]), float(k1[2]), float(k1[3]), float(k1[4])
     cuerpo = abs(cl - op) if abs(cl - op) > 0 else 0.001
     m_inf, m_sup = min(op, cl) - lo, hi - max(op, cl)
@@ -24,16 +24,12 @@ def libro_nison_agresivo(k1, k2):
     op_p, cl_p = float(k2[1]), float(k2[4])
     cuerpo_p = abs(cl_p - op_p)
 
-    # --- SEÑALES DE COMPRA (LONG) ---
-    # Martillo: mecha abajo 2.5x cuerpo
+    # SEÑALES LONG
     if m_inf > (cuerpo * 2.5) and m_sup < (cuerpo * 0.7): return "MARTILLO 🔨"
-    # Envolvente Verde
     if cl > op and cl_p < op_p and cuerpo > (cuerpo_p * 1.1): return "ENVOLVENTE_V 🌊"
 
-    # --- SEÑALES DE VENTA (SHORT) ---
-    # Estrella: mecha arriba 2.5x cuerpo
+    # SEÑALES SHORT
     if m_sup > (cuerpo * 2.5) and m_inf < (cuerpo * 0.7): return "ESTRELLA ☄️"
-    # Envolvente Roja
     if cl < op and cl_p > op_p and cuerpo > (cuerpo_p * 1.1): return "ENVOLVENTE_R 🌊"
 
     return "Normal"
@@ -42,14 +38,14 @@ def mostrar_reporte():
     global historial_bloque
     neto = ganado - perdido
     print(f"\n╔{'═'*55}╗")
-    print(f"║ 🔱 REPORTE AMETRALLADORA | {datetime.now().strftime('%H:%M:%S')}      ║")
+    print(f"║ 🔱 REPORTE BLINDADO | {datetime.now().strftime('%H:%M:%S')}          ║")
     print(f"║ TOTAL: {ops_totales} | ✅ G: {ops_ganadas} | ❌ P: {ops_perdidas} | 💰 NETO: ${neto:.4f}  ║")
     print(f"╠{'═'*55}╣")
     for h in historial_bloque: print(f"║ • {h:<51} ║")
     print(f"╚{'═'*55}╝\n")
     historial_bloque.clear()
 
-print("🚀 INICIANDO MODO AGRESIVO - COMPRA Y VENTA (1m/15s)")
+print("🚀 MODO BLINDAJE ACTIVADO - PROTECCIÓN RÁPIDA 0.18%")
 
 while True:
     try:
@@ -57,7 +53,7 @@ while True:
         sol = float(ticker['price'])
         k = client.get_klines(symbol='SOLUSDT', interval='1m', limit=3)
         
-        patron = libro_nison_agresivo(k[-1], k[-2])
+        patron = libro_nison_blindado(k[-1], k[-2])
         precio_cierre_v1 = float(k[-1][4])
 
         if not en_op:
@@ -67,27 +63,28 @@ while True:
             if ("MARTILLO" in patron or "ENVOLVENTE_V" in patron) and sol > precio_cierre_v1:
                 p_ent, en_op, t_op, p_al_entrar = sol, True, "LONG", patron
                 max_roi, break_even_listo = -99.0, False
-                print(f"\n🔥 DISPARO AGRESIVO: {t_op} | {p_al_entrar} a {p_ent}")
+                print(f"\n🔥 ENTRADA: {t_op} | {p_al_entrar} a {p_ent}")
             
             # GATILLO SHORT
             elif ("ESTRELLA" in patron or "ENVOLVENTE_R" in patron) and sol < precio_cierre_v1:
                 p_ent, en_op, t_op, p_al_entrar = sol, True, "SHORT", patron
                 max_roi, break_even_listo = -99.0, False
-                print(f"\n🔥 DISPARO AGRESIVO: {t_op} | {p_al_entrar} a {p_ent}")
+                print(f"\n🔥 ENTRADA: {t_op} | {p_al_entrar} a {p_ent}")
         
         else:
             diff = (sol - p_ent) / p_ent if t_op == "LONG" else (p_ent - sol) / p_ent
             roi = (diff * 100 * 10) - 0.22 
             if roi > max_roi: max_roi = roi
             
-            # Break Even rápido a los +0.25%
-            if roi >= 0.25: break_even_listo = True
+            # BREAK EVEN ULTRA-RÁPIDO (Protección total)
+            if roi >= 0.18: 
+                break_even_listo = True
             
-            # Cierres
-            if break_even_listo and roi <= 0.02:
-                res, motivo = (cap_base * (roi / 100)), "🛡️ BREAK EVEN"
+            # Cierres tácticos
+            if break_even_listo and roi <= 0.01:
+                res, motivo = (cap_base * (roi / 100)), "🛡️ BREAK EVEN (BLINDADO)"
                 en_op = False
-            elif (max_roi >= 0.40 and roi <= (max_roi - 0.12)) or roi <= -0.60:
+            elif (max_roi >= 0.40 and roi <= (max_roi - 0.12)) or roi <= -0.55:
                 res, motivo = (cap_base * (roi / 100)), p_al_entrar
                 en_op = False
                 
@@ -98,7 +95,7 @@ while True:
                 historial_bloque.append(f"{ico} {t_op} {roi:>5.2f}% | {motivo}")
                 if ops_totales % 5 == 0: mostrar_reporte()
 
-        time.sleep(15) # Sincronización obligatoria
+        time.sleep(15)
 
     except Exception as e:
         time.sleep(5)
