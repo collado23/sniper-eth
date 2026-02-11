@@ -2,7 +2,7 @@ import os, time
 from datetime import datetime
 from binance.client import Client
 
-# === CONEXIÓN LIMPIA ===
+# === CONEXIÓN DIRECTA ===
 def conectar():
     return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
@@ -16,7 +16,7 @@ en_op = False
 historial_bloque = []
 
 def libro_nison_blindado(k1, k2):
-    """Matemática de Nison con Filtro 2.5x"""
+    """Matemática de Nison: Filtro 2.5x"""
     op, hi, lo, cl = float(k1[1]), float(k1[2]), float(k1[3]), float(k1[4])
     cuerpo = abs(cl - op) if abs(cl - op) > 0 else 0.001
     m_inf, m_sup = min(op, cl) - lo, hi - max(op, cl)
@@ -45,7 +45,7 @@ def mostrar_reporte():
     print(f"╚{'═'*55}╝\n")
     historial_bloque.clear()
 
-print("🚀 MODO BLINDAJE ACTIVADO - PROTECCIÓN RÁPIDA 0.18%")
+print("🚀 SNIPER CARGADO - PROTECCIÓN 0.18% - SINCRO 15s")
 
 while True:
     try:
@@ -59,13 +59,12 @@ while True:
         if not en_op:
             print(f"📡 SCAN: {patron} | SOL: {sol} | {datetime.now().strftime('%S')}s", end='\r')
             
-            # GATILLO LONG
+            # GATILLOS
             if ("MARTILLO" in patron or "ENVOLVENTE_V" in patron) and sol > precio_cierre_v1:
                 p_ent, en_op, t_op, p_al_entrar = sol, True, "LONG", patron
                 max_roi, break_even_listo = -99.0, False
                 print(f"\n🔥 ENTRADA: {t_op} | {p_al_entrar} a {p_ent}")
             
-            # GATILLO SHORT
             elif ("ESTRELLA" in patron or "ENVOLVENTE_R" in patron) and sol < precio_cierre_v1:
                 p_ent, en_op, t_op, p_al_entrar = sol, True, "SHORT", patron
                 max_roi, break_even_listo = -99.0, False
@@ -76,11 +75,10 @@ while True:
             roi = (diff * 100 * 10) - 0.22 
             if roi > max_roi: max_roi = roi
             
-            # BREAK EVEN ULTRA-RÁPIDO (Protección total)
+            # BREAK EVEN ULTRA-RÁPIDO (Cuidar el capital)
             if roi >= 0.18: 
                 break_even_listo = True
             
-            # Cierres tácticos
             if break_even_listo and roi <= 0.01:
                 res, motivo = (cap_base * (roi / 100)), "🛡️ BREAK EVEN (BLINDADO)"
                 en_op = False
@@ -98,5 +96,5 @@ while True:
         time.sleep(15)
 
     except Exception as e:
-        time.sleep(5)
+        time.sleep(10)
         client = conectar()
