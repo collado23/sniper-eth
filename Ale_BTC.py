@@ -6,12 +6,10 @@ from binance.client import Client
 def c(): return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 cl = c(); ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT']
 
-# Estado de cuenta
+# Estado de cuenta actualizado
 cap_actual = 19.52 
 MIN_LOT = 15.0 
-ops_count = 0
-ops_ganadas = 0
-st = {m: {'e': False, 'p': 0, 't': '', 'v': '', 'be': False} for m in ms}
+st = {m: {'e': False, 'p': 0, 't': '', 'v': '', 'nivel': 0} for m in ms}
 
 def detectar_entrada(df):
     df['ema_9'] = df['close'].ewm(span=9, adjust=False).mean()   
@@ -27,7 +25,7 @@ def detectar_entrada(df):
         return "SHORT", "ENVOLVENTE BAJISTA"
     return None, None
 
-print(f"🔱 IA QUANTUM: PERSISTENCIA ACTIVADA | NETO: ${cap_actual}")
+print(f"🔱 IA QUANTUM: MODO ESCALERA ACTIVADO | NETO: ${cap_actual}")
 
 while True:
     try:
@@ -37,51 +35,57 @@ while True:
             df = pd.DataFrame(k, columns=['t','open','high','low','close','v','ct','qv','nt','tb','tq','i'])
             df[['open','high','low','close']] = df[['open','high','low','close']].astype(float)
             px_actual = df['close'].iloc[-1]
-            e9 = df['close'].ewm(span=9, adjust=False).mean().iloc[-1]
-            e27 = df['close'].ewm(span=27, adjust=False).mean().iloc[-1]
             
             if not s['e']:
                 dir, vela = detectar_entrada(df)
                 if dir:
-                    s['t'], s['p'], s['e'], s['v'], s['be'] = dir, px_actual, True, vela, False
-                    print(f"🔥 {m} | ENTRADA: {dir} en {px_actual}")
+                    s['t'], s['p'], s['e'], s['v'], s['nivel'] = dir, px_actual, True, vela, 0
+                    print(f"🚀 {m} | DISPARO: {dir} en {px_actual}")
             
             elif s['e']:
                 roi = (((px_actual - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px_actual) / s['p']) * 100 * 10) - 0.22
                 
-                # 🛡️ BREAK EVEN (1.2%)
-                if roi >= 1.2 and not s['be']:
-                    s['be'] = True; print(f"🛡️ BE ACTIVADO en {m}")
-
-                # 💰 COSECHA (2%) + RE-ENTRADA SI SIGUE LA TENDENCIA
-                if roi >= 2.0:
+                # --- LÓGICA DE ESCALONES (BREAKING BAD) ---
+                # Nivel 1: Llegó a 1.2% -> Protegemos en 0.2%
+                if roi >= 1.2 and s['nivel'] < 1:
+                    s['nivel'] = 1
+                    print(f"🛡️ NIVEL 1: BE Activado en {m} (Protección 0.2%)")
+                
+                # Nivel 2: Llegó a 2.0% -> Subimos piso a 1.2%
+                elif roi >= 2.0 and s['nivel'] < 2:
+                    s['nivel'] = 2
+                    print(f"🔥 NIVEL 2: Piso subido en {m} (Protección 1.2%)")
+                
+                # Nivel 3: Llegó a 3.0% -> Subimos piso a 2.0%
+                elif roi >= 3.0 and s['nivel'] < 3:
+                    s['nivel'] = 3
+                    print(f"💎 NIVEL 3: Piso subido en {m} (Protección 2.0%)")
+                
+                # Nivel 4: CIERRE TOTAL a 5%
+                elif roi >= 5.0:
                     cap_actual += (MIN_LOT * (roi / 100))
-                    ops_count += 1; ops_ganadas += 1
-                    print(f"💰 COSECHA {m} | ROI: {roi:.2f}% | NETO: ${cap_actual:.2f}")
-                    
-                    # ¿Sigue la tendencia?
-                    sigue_long = (s['t'] == "LONG" and e9 > e27)
-                    sigue_short = (s['t'] == "SHORT" and e9 < e27)
-                    
-                    if sigue_long or sigue_short:
-                        s['p'] = px_actual; s['be'] = False; s['v'] = "PERSISTENCIA"
-                        print(f"🔄 {m} CONTINÚA LA TENDENCIA. Re-entrando en {s['t']}...")
-                    else:
-                        s['e'] = False
+                    s['e'] = False
+                    print(f"💰 COSECHA FINAL 5% en {m} | NETO: ${cap_actual:.2f}")
 
-                # 🛡️ SALIDA PROTEGIDA
-                elif s['be'] and roi <= 0.2:
+                # --- CONTROL DE SALIDAS POR RETROCESO (ZIG ZAG) ---
+                if s['nivel'] == 1 and roi <= 0.2:
                     cap_actual += (MIN_LOT * (roi / 100))
-                    ops_count += 1; s['e'] = False
-                    print(f"🛡️ SALIDA SEGURA {m} | NETO: ${cap_actual:.2f}")
-
-                # 🔄 GIRO POR STOP LOSS (-3%)
+                    s['e'] = False; print(f"🛡️ SALIDA N1 (Protección) en {m}")
+                elif s['nivel'] == 2 and roi <= 1.2:
+                    cap_actual += (MIN_LOT * (roi / 100))
+                    s['e'] = False; print(f"💰 SALIDA N2 (Asegurado 1.2%) en {m}")
+                elif s['nivel'] == 3 and roi <= 2.0:
+                    cap_actual += (MIN_LOT * (roi / 100))
+                    s['e'] = False; print(f"💰 SALIDA N3 (Asegurado 2.0%) en {m}")
+                
+                # --- STOP LOSS / GIRO (Si nunca llegó a Nivel 1) ---
                 elif roi <= -3.0:
                     nueva_dir = "SHORT" if s['t'] == "LONG" else "LONG"
                     cap_actual += (MIN_LOT * (roi / 100))
-                    ops_count += 1
                     print(f"🔄 GIRO {m}: SL 3% tocado. Entrando en {nueva_dir}...")
-                    s['t'], s['p'], s['v'], s['be'] = nueva_dir, px_actual, "VELA DE GIRO", False
+                    s['t'], s['p'], s['v'], s['nivel'] = nueva_dir, px_actual, "VELA DE GIRO", 0
+
+                print(f"📊 {m} | ROI: {roi:.2f}% | Nivel: {s['nivel']}", end='\r')
 
             time.sleep(1); del df
         time.sleep(10)
