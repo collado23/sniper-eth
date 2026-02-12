@@ -5,76 +5,61 @@ from binance.client import Client
 def c(): return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 cl = c(); ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT']
 
-# Capital inicial para esta corrida (ajustado según logs)
-cap_actual = 23.86 
+# Iniciamos con el neto de tus últimos logs
+cap_actual = 22.32 
 st = {m: {'e': False, 'p': 0, 't': '', 'm': -9.0} for m in ms}
 
-def calculadora_fisica_27_9(df):
+def analizar_fisica_ale(df):
     act = df.iloc[-1]; prev = df.iloc[-2]
+    df['ema_9'] = df['close'].ewm(span=9, adjust=False).mean()   # Sigue a la vela
+    df['ema_27'] = df['close'].ewm(span=27, adjust=False).mean() # Inercia (Salida)
+    df['ema_200'] = df['close'].ewm(span=200, adjust=False).mean() # Gravedad
     
-    # Ejes Matemáticos según tu pedido
-    df['ema_27'] = df['close'].ewm(span=27, adjust=False).mean() # Eje i (Centro estable)
-    df['ema_9'] = df['close'].ewm(span=9, adjust=False).mean()   # Eje j (Sensor rápido)
+    e9 = df['ema_9'].iloc[-1]
+    e27 = df['ema_27'].iloc[-1]
+    e200 = df['ema_200'].iloc[-1]
     
-    i = df['ema_27'].iloc[-1]
-    j = df['ema_9'].iloc[-1]
-    j_prev = df['ema_9'].iloc[-2]
-    
-    # 1. CÁLCULO DE DISTANCIA X (Respecto a la 27)
-    # Analizamos 100 velas atrás para ver el comportamiento histórico
-    distancias_x = (df['close'] - df['ema_27']).tail(100).abs()
-    x_limite = distancias_x.mean() + distancias_x.std()
-
-    # 2. DISPARO POR CRUCE Y TRAYECTORIA
-    # Si la 9 (sensor) rompe la 27 (centro) hacia abajo:
-    if j < i and j < j_prev and act['close'] < prev['low']:
-        return "🟥" # Trayectoria de bajada confirmada
-        
-    # Si la 9 (sensor) rompe la 27 (centro) hacia arriba:
-    if j > i and j > j_prev and act['close'] > prev['high']:
-        return "🟩" # Trayectoria de subida confirmada
-        
+    # ENTRADA: Cuando la 9 (vela) cruza la 27 y estamos a favor de la 200
+    # SHORT (Bajada): Si estamos bajo la 200 y la 9 cruza hacia abajo la 27
+    if act['close'] < e200 and e9 < e27 and df['ema_9'].iloc[-2] >= df['ema_27'].iloc[-2]:
+        return "🟥"
+    # LONG (Subida): Si estamos sobre la 200 y la 9 cruza hacia arriba la 27
+    if act['close'] > e200 and e9 > e27 and df['ema_9'].iloc[-2] <= df['ema_27'].iloc[-2]:
+        return "🟩"
     return "."
 
-print(f"🔱 IA QUANTUM: EJE i(27) - SENSOR j(9) | CAP: ${cap_actual}")
+print(f"🔱 IA QUANTUM | MODO DIBUJO ALE | EJE 27 | CAP: ${cap_actual}")
 
 while True:
     try:
         for m in ms:
             s = st[m]
-            # Pedimos 200 para que la EMA 27 se calcule perfecta
             k = cl.get_klines(symbol=m, interval='1m', limit=200)
             df = pd.DataFrame(k, columns=['t','open','high','low','close','v','ct','qv','nt','tb','tq','i'])
             df[['open','high','low','close']] = df[['open','high','low','close']].astype(float)
             
             px = df['close'].iloc[-1]
-            prediccion = calculadora_fisica_27_9(df)
+            senal = analizar_fisica_ale(df)
 
             if not s['e']:
-                if prediccion != ".":
-                    s['t'] = "LONG" if prediccion == "🟩" else "SHORT"
-                    s['p'], s['e'], s['m'] = px, True, -9.0
-                    print(f"\n🎯 DISPARO {s['t']} EN {m} | Centro 27 | Sensor 9")
+                if senal != ".":
+                    s['t'] = "LONG" if senal == "🟩" else "SHORT"
+                    s['p'], s['e'] = px, True
+                    print(f"\n🎯 ENTRADA EN {m} ({s['t']}) | Siguiendo inercia...")
             else:
-                # GESTIÓN DE LA "X" EN TIEMPO REAL
-                df_p = (px - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px) / s['p']
-                roi = (df_p * 100 * 10) - 0.22 
-                if roi > s['m']: s['m'] = roi
+                # GESTIÓN DE SALIDA: Solo cuando toca la 27 (como tu dibujo)
+                roi = (((px - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px) / s['p']) * 100 * 10) - 0.22
                 
-                ema_9_actual = df['close'].ewm(span=9, adjust=False).mean().iloc[-1]
-                ema_27_actual = df['close'].ewm(span=27, adjust=False).mean().iloc[-1]
+                e27_act = df['close'].ewm(span=27, adjust=False).mean().iloc[-1]
+                
+                # CONDICIÓN DE VENTA ALE: Cruzar la 27
+                vender = (s['t'] == "LONG" and px <= e27_act) or (s['t'] == "SHORT" and px >= e27_act)
 
-                # SALIDA: Si el precio cruza la EMA 9 (primer aviso) 
-                # o si la tendencia pierde la física del eje 27
-                corte_sensor = (s['t'] == "LONG" and px < ema_9_actual) or \
-                               (s['t'] == "SHORT" and px > ema_9_actual)
-
-                if corte_sensor or roi <= -0.25:
-                    gan = (cap_actual * (roi / 100))
-                    cap_actual += gan
+                if vender or roi <= -0.80: # Stop de seguridad un poco más ancho
+                    cap_actual += (cap_actual * (roi / 100))
                     s['e'] = False
-                    res = "✅" if roi > 0 else "❌"
-                    print(f"{res} SALIDA {m} | ROI: {roi:.2f}% | NETO: ${cap_actual:.2f}")
+                    icon = "✅" if roi > 0 else "❌"
+                    print(f"{icon} SALIDA {m} EN 27 | ROI: {roi:.2f}% | NETO: ${cap_actual:.2f}")
 
         time.sleep(15)
     except:
