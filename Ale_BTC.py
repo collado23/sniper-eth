@@ -4,12 +4,12 @@ from binance.client import Client
 
 # Conexión Ale IA Quantum
 def c(): 
-    return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET')) 
+    return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
 cl = c()
-ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT'] 
+ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT']
 
-# --- CAPITAL ACTUALIZADO ---
+# --- CAPITAL ACTUAL ---
 cap_actual = 18.61 
 MIN_LOT = 15.0  
 st = {m: {'e': False, 'p': 0, 't': '', 'v': '', 'nivel': 0} for m in ms}
@@ -32,7 +32,7 @@ def detectar_entrada(df):
         if env and mecha_ok and vol_ok: return "SHORT", "ENVOLVENTE"
     return None, None
 
-print(f"🔱 IA QUANTUM V6 | ESCALERA 0.5% | CAP: ${cap_actual}")
+print(f"🔱 IA QUANTUM V7 | ESCALERA HASTA 20% | CAP: ${cap_actual}")
 
 while True:
     try:
@@ -55,43 +55,37 @@ while True:
                 roi = (diff * 100 * 10) - 0.22
                 gan_usd = (MIN_LOT * (roi / 100))
                 
-                # --- ESCALERA DE 0.5 EN 0.5 (ALTA RESOLUCIÓN) ---
-                # Formato: meta : piso (siempre dejamos un margen de 0.3% o 0.4%)
-                niv_cfg = {
-                    0.5: 0.10, 1.0: 0.60, 1.5: 1.10, 2.0: 1.60, 
-                    2.5: 2.10, 3.0: 2.60, 3.5: 3.10, 4.0: 3.60,
-                    4.5: 4.10, 5.0: 4.60, 5.5: 5.10, 6.0: 5.60,
-                    6.5: 6.10, 7.0: 6.60, 7.5: 7.10, 8.0: 7.60,
-                    8.5: 8.10, 9.0: 8.60, 9.5: 9.10, 10.0: 9.60
-                }
+                # --- ESCALERA MAESTRA (0.5% a 20.0%) ---
+                # Generamos los niveles automáticamente para no fallar
+                niv_cfg = {round(x * 0.5, 1): round((x * 0.5) - 0.4, 2) for x in range(1, 41)}
+                # Ajuste manual para el primer nivel (Breakeven)
+                niv_cfg[0.5] = 0.10
 
                 # Actualizar Nivel dinámicamente
                 for meta in sorted(niv_cfg.keys()):
                     if roi >= meta and meta > s['nivel']:
                         s['nivel'] = meta
-                        print(f"\n🛡️ {m} Nivel {meta} | PNL: ${gan_usd:.2f} | Piso: {niv_cfg[meta]}%")
+                        print(f"\n🛡️ {m} Nivel {meta}% | Piso: {niv_cfg[meta]}% | GAN: ${gan_usd:.2f}")
 
                 # --- LÓGICA DE SALIDAS ---
                 
-                # 1. Salida por Piso (Breakeven 0.5, 1, 1.5...)
+                # 1. Salida por Piso (Breakeven Dinámico)
                 if s['nivel'] in niv_cfg:
                     if roi <= niv_cfg[s['nivel']]:
                         cap_actual += gan_usd
-                        print(f"\n✅ PISO {s['nivel']}% ALCANZADO | GANASTE: ${gan_usd:.2f} | TOTAL: ${cap_actual:.2f}")
+                        print(f"\n✅ PISO ASEGURADO N{s['nivel']} | GANASTE: ${gan_usd:.2f} | NETO: ${cap_actual:.2f}")
                         s['e'] = False
 
-                # 2. SALIDA POR GIRO (Si cruza EMA27, cerramos y giramos)
+                # 2. SALIDA POR GIRO (Confirmación de tendencia)
                 elif (s['t'] == "LONG" and px < e27) or (s['t'] == "SHORT" and px > e27):
                     cap_actual += gan_usd
-                    nueva_dir = "SHORT" if s['t'] == "LONG" else "LONG"
-                    print(f"\n🔄 GIRO DE TENDENCIA | PNL: ${gan_usd:.2f} | CAMBIO A {nueva_dir}")
-                    # Cerramos la anterior y entramos en la nueva tendencia
-                    s['t'], s['p'], s['nivel'] = nueva_dir, px, 0
+                    print(f"\n🔄 GIRO DETECTADO | PNL: ${gan_usd:.2f} | Buscando nueva entrada...")
+                    s['e'] = False
 
-                # 3. STOP LOSS CORTO (Bajado a -0.7% para máxima protección)
+                # 3. STOP LOSS CORTO (-0.7%)
                 elif roi <= -0.7:
                     cap_actual += gan_usd
-                    print(f"\n❌ SL CORTO | PNL: ${gan_usd:.2f} | NETO: ${cap_actual:.2f}")
+                    print(f"\n❌ SL CORTO | PNL: ${gan_usd:.2f}")
                     s['e'] = False
 
                 emoji = "🟢" if gan_usd >= 0 else "🔴"
