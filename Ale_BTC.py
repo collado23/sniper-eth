@@ -3,7 +3,7 @@ import pandas as pd
 from binance.client import Client
 
 # Conexión Ale IA Quantum
-def c(): 
+def c():  
     return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
 cl = c()
