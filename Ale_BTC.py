@@ -9,9 +9,9 @@ def c():
 cl = c()
 ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT']
 
-# Estado de cuenta
+# --- DATOS DE TU LOG ---
 cap_actual = 19.27 
-MIN_LOT = 15.0 # El valor nominal de tu posición (Margin x Apalancamiento)
+MIN_LOT = 15.0  # El tamaño de tu operación (Margin x10)
 st = {m: {'e': False, 'p': 0, 't': '', 'v': '', 'nivel': 0} for m in ms}
 
 def detectar_entrada(df):
@@ -29,15 +29,15 @@ def detectar_entrada(df):
 
     if act['close'] > act['open'] and act['close'] > act['ema_9'] and act['ema_9'] > act['ema_27']:
         if envolvente and mecha_ok and cerca_ema:
-            return "LONG", "ENVOLVENTE PURA"
+            return "LONG", "ENVOLVENTE"
             
     if act['close'] < act['open'] and act['close'] < act['ema_9'] and act['ema_9'] < act['ema_27']:
         if envolvente and mecha_ok and cerca_ema:
-            return "SHORT", "ENVOLVENTE PURA"
+            return "SHORT", "ENVOLVENTE"
             
     return None, None
 
-print(f"🔱 IA QUANTUM V2 | CAP INICIAL: ${cap_actual} | LOTE: ${MIN_LOT}")
+print(f"🔱 IA QUANTUM V2 | CAPITAL: ${cap_actual}")
 
 while True:
     try:
@@ -52,17 +52,17 @@ while True:
                 dir, vela = detectar_entrada(df)
                 if dir:
                     s['t'], s['p'], s['e'], s['v'], s['nivel'] = dir, px_actual, True, vela, 0
-                    print(f"\n🚀 {m} | ENTRADA {dir} en {px_actual}")
+                    print(f"\n🚀 {m} | ENTRADA {dir} a {px_actual}")
             
             elif s['e']:
-                # Cálculo de ROI Neto (x10 palanca - comisión)
+                # Cálculo de ROI (basado en tu log x10 palanca)
                 diff = (px_actual - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px_actual) / s['p']
                 roi = (diff * 100 * 10) - 0.22
                 
-                # CÁLCULO DE GANANCIA/PÉRDIDA EN DÓLARES (PNL)
-                pnl_usd = (MIN_LOT * (roi / 100))
+                # --- CALCULO DE GANANCIA EN DOLARES ---
+                # Esta es la parte que no veías en tu TXT
+                ganancia_usd = (MIN_LOT * (roi / 100))
                 
-                # --- ESCALERA DE BLINDAJE ---
                 niv_cfg = {
                     1: (1.2, 0.2), 2: (2.0, 1.2), 3: (2.5, 2.0), 4: (3.5, 2.5),
                     5: (4.0, 3.5), 6: (4.5, 4.0), 7: (5.0, 4.5), 8: (5.5, 5.0),
@@ -73,27 +73,27 @@ while True:
                 for n, (meta, piso) in niv_cfg.items():
                     if roi >= meta and s['nivel'] < n:
                         s['nivel'] = n
-                        print(f"\n🛡️ {m} SUBIÓ A NIVEL {n} | PNL: ${pnl_usd:.2f}")
+                        print(f"\n🛡️ {m} SUBIÓ A NIVEL {n} | GANANCIA ACTUAL: ${ganancia_usd:.2f}")
 
-                # Salida por Protección (Piso)
+                # Salida por piso
                 if s['nivel'] in niv_cfg:
                     if roi <= niv_cfg[s['nivel']][1]:
-                        cap_actual += pnl_usd
-                        print(f"\n✅ SALIDA PROTEGIDA {m} | GANANCIA: ${pnl_usd:.2f} | CAP TOTAL: ${cap_actual:.2f}")
+                        cap_actual += ganancia_usd
+                        print(f"\n✅ CIERRE EN NIVEL {s['nivel']} | GANASTE: ${ganancia_usd:.2f} | TOTAL: ${cap_actual:.2f}")
                         s['e'] = False
 
-                # Stop Loss Dinámico (Evita perder más de lo debido)
+                # Stop Loss
                 elif roi <= -1.8: 
-                    cap_actual += pnl_usd
-                    print(f"\n❌ STOP LOSS {m} | PÉRDIDA: ${pnl_usd:.2f} | CAP TOTAL: ${cap_actual:.2f}")
+                    cap_actual += ganancia_usd
+                    print(f"\n❌ SL TOCADO | PERDISTE: ${ganancia_usd:.2f} | TOTAL: ${cap_actual:.2f}")
                     s['e'] = False
 
-                # Imprimir estado actual en pantalla (PNL en USD incluido)
-                color = "🟢" if pnl_usd >= 0 else "🔴"
-                print(f"📊 {m} | {color} PNL: ${pnl_usd:.2f} ({roi:.2f}%) | Nivel: {s['nivel']} | Px: {px_actual}", end='\r')
+                # --- MONITOR QUE TE MUESTRA LOS DOLARES ---
+                txt_ganancia = f"GANANCIA: ${ganancia_usd:.2f}" if ganancia_usd >= 0 else f"PERDIDA: ${ganancia_usd:.2f}"
+                print(f"📊 {m} | {txt_ganancia} ({roi:.2f}%) | Nivel: {s['nivel']}", end='\r')
 
             time.sleep(1)
             del df
     except Exception as e:
-        print(f"\n⚠️ Error de conexión: {e}")
+        print(f"\n⚠️ Error: {e}")
         time.sleep(5); cl = c()
