@@ -3,7 +3,7 @@ import pandas as pd
 from binance.client import Client
 
 def c(): return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
-cl = c(); ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT']
+cl = c(); ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT'] 
 
 # Iniciamos con el neto de tus últimos logs
 cap_actual = 22.32 
