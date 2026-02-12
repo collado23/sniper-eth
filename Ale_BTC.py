@@ -1,6 +1,6 @@
 import os, time
 import pandas as pd
-from binance.client import Client
+from binance.client import Client 
 
 # Conexión con tus llaves seguras
 def c(): return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
