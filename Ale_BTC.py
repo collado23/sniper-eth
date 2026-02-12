@@ -11,30 +11,22 @@ ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT']
 
 # Estado de cuenta
 cap_actual = 19.27 
-MIN_LOT = 15.0 
+MIN_LOT = 15.0 # El valor nominal de tu posición (Margin x Apalancamiento)
 st = {m: {'e': False, 'p': 0, 't': '', 'v': '', 'nivel': 0} for m in ms}
 
 def detectar_entrada(df):
     df['ema_9'] = df['close'].ewm(span=9, adjust=False).mean()   
     df['ema_27'] = df['close'].ewm(span=27, adjust=False).mean() 
-    
     act = df.iloc[-1]
     ant = df.iloc[-2]
     
-    # --- FILTROS ANTI-GARETE (Para no entrar en el pico) ---
     cuerpo = abs(act['close'] - act['open'])
     rango_total = act['high'] - act['low']
-    # Si la mecha es más del 40% de la vela, hay rechazo (peligro)
     mecha_ok = cuerpo > (rango_total * 0.6)
-    
-    # Envolvente real: El cuerpo debe ser mayor al anterior, no solo el precio
     envolvente = cuerpo > abs(ant['close'] - ant['open'])
-    
-    # Distancia a la EMA (No entrar si el precio se escapó más de 0.3%)
     distancia_ema = abs(act['close'] - act['ema_9']) / act['ema_9']
     cerca_ema = distancia_ema < 0.003
 
-    # --- LÓGICA DE DISPARO ---
     if act['close'] > act['open'] and act['close'] > act['ema_9'] and act['ema_9'] > act['ema_27']:
         if envolvente and mecha_ok and cerca_ema:
             return "LONG", "ENVOLVENTE PURA"
@@ -45,7 +37,7 @@ def detectar_entrada(df):
             
     return None, None
 
-print(f"🔱 IA QUANTUM V2: FILTRO DE MECHAS Y ESCALERA N15 | NETO: ${cap_actual}")
+print(f"🔱 IA QUANTUM V2 | CAP INICIAL: ${cap_actual} | LOTE: ${MIN_LOT}")
 
 while True:
     try:
@@ -56,22 +48,21 @@ while True:
             df[['open','high','low','close']] = df[['open','high','low','close']].astype(float)
             px_actual = df['close'].iloc[-1]
             
-            ema_data = df['close'].ewm(span=9, adjust=False).mean()
-            e9 = ema_data.iloc[-1]
-            e27 = df['close'].ewm(span=27, adjust=False).mean().iloc[-1]
-            
             if not s['e']:
                 dir, vela = detectar_entrada(df)
                 if dir:
                     s['t'], s['p'], s['e'], s['v'], s['nivel'] = dir, px_actual, True, vela, 0
-                    print(f"\n🚀 {m} | ENTRADA {dir} confirmada en {px_actual}")
+                    print(f"\n🚀 {m} | ENTRADA {dir} en {px_actual}")
             
             elif s['e']:
-                # ROI Neto con palanca x10
+                # Cálculo de ROI Neto (x10 palanca - comisión)
                 diff = (px_actual - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px_actual) / s['p']
                 roi = (diff * 100 * 10) - 0.22
                 
-                # --- ESCALERA DE BLINDAJE N1-N15 ---
+                # CÁLCULO DE GANANCIA/PÉRDIDA EN DÓLARES (PNL)
+                pnl_usd = (MIN_LOT * (roi / 100))
+                
+                # --- ESCALERA DE BLINDAJE ---
                 niv_cfg = {
                     1: (1.2, 0.2), 2: (2.0, 1.2), 3: (2.5, 2.0), 4: (3.5, 2.5),
                     5: (4.0, 3.5), 6: (4.5, 4.0), 7: (5.0, 4.5), 8: (5.5, 5.0),
@@ -82,24 +73,27 @@ while True:
                 for n, (meta, piso) in niv_cfg.items():
                     if roi >= meta and s['nivel'] < n:
                         s['nivel'] = n
-                        print(f"\n🛡️ {m} N{n} Bloqueado (Piso {piso}%)")
+                        print(f"\n🛡️ {m} SUBIÓ A NIVEL {n} | PNL: ${pnl_usd:.2f}")
 
-                # Salida por piso
+                # Salida por Protección (Piso)
                 if s['nivel'] in niv_cfg:
                     if roi <= niv_cfg[s['nivel']][1]:
-                        cap_actual += (MIN_LOT * (roi / 100))
-                        print(f"\n💰 SALIDA N{s['nivel']} en {m} | ROI: {roi:.2f}% | NETO: ${cap_actual:.2f}")
+                        cap_actual += pnl_usd
+                        print(f"\n✅ SALIDA PROTEGIDA {m} | GANANCIA: ${pnl_usd:.2f} | CAP TOTAL: ${cap_actual:.2f}")
                         s['e'] = False
 
-                # Stop Loss ajustado para no quemar cuenta
-                elif roi <= -2.5: # Si baja a -2.5% cerramos o giramos
-                    cap_actual += (MIN_LOT * (roi / 100))
-                    print(f"\n❌ STOP LOSS en {m} | ROI: {roi:.2f}%")
+                # Stop Loss Dinámico (Evita perder más de lo debido)
+                elif roi <= -1.8: 
+                    cap_actual += pnl_usd
+                    print(f"\n❌ STOP LOSS {m} | PÉRDIDA: ${pnl_usd:.2f} | CAP TOTAL: ${cap_actual:.2f}")
                     s['e'] = False
 
-                print(f"📊 {m} | ROI: {roi:.2f}% | Nivel: {s['nivel']}", end='\r')
+                # Imprimir estado actual en pantalla (PNL en USD incluido)
+                color = "🟢" if pnl_usd >= 0 else "🔴"
+                print(f"📊 {m} | {color} PNL: ${pnl_usd:.2f} ({roi:.2f}%) | Nivel: {s['nivel']} | Px: {px_actual}", end='\r')
 
             time.sleep(1)
             del df
     except Exception as e:
+        print(f"\n⚠️ Error de conexión: {e}")
         time.sleep(5); cl = c()
