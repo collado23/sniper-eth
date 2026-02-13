@@ -1,3 +1,4 @@
 requests
 python-binance
 pandas
+pip install pandas-ta
