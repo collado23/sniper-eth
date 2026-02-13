@@ -1,93 +1,93 @@
 import os, time
 import pandas as pd
+import pandas_ta as ta # Necesitarás instalar: pip install pandas_ta
 from binance.client import Client
 
-# Conexión Ale IA Quantum
 def c(): 
-    return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET')) 
+    return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
 cl = c()
 ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT']
-
-# --- CAPITAL ACTUAL ---
-cap_actual = 18.61 
+cap_actual = 18.45 
 MIN_LOT = 15.0  
 st = {m: {'e': False, 'p': 0, 't': '', 'v': '', 'nivel': 0} for m in ms}
 
 def detectar_entrada(df):
-    # Reducimos indicadores al mínimo para ganar milisegundos
-    df['ema_9'] = df['close'].ewm(span=9, adjust=False).mean()   
-    df['ema_27'] = df['close'].ewm(span=27, adjust=False).mean() 
-    df['vol_ema'] = df['v'].rolling(10).mean()
+    # Indicadores de fuerza
+    df['ema_9'] = ta.ema(df['close'], length=9)
+    df['ema_27'] = ta.ema(df['close'], length=27)
+    df['rsi'] = ta.rsi(df['close'], length=14)
+    
     act, ant = df.iloc[-1], df.iloc[-2]
     
-    vol_ok = act['v'] > (df['vol_ema'].iloc[-1] * 0.8)
+    # FILTRO ANTI-RANGO: Evitar el medio del RSI
+    tendencia_fuerte = act['rsi'] > 55 or act['rsi'] < 45
+    vol_ok = act['v'] > df['v'].rolling(10).mean().iloc[-1] * 1.2
+    
     cuerpo = abs(act['close'] - act['open'])
     rango = act['high'] - act['low']
-    mecha_ok = cuerpo > (rango * 0.70)
-    env = cuerpo > abs(ant['close'] - ant['open'])
+    mecha_ok = cuerpo > (rango * 0.75)
     
-    if act['close'] > act['open'] and act['close'] > act['ema_9'] and act['ema_9'] > act['ema_27']:
-        if env and mecha_ok and vol_ok: return "LONG", "ENVOLVENTE"
-    if act['close'] < act['open'] and act['close'] < act['ema_9'] and act['ema_9'] < act['ema_27']:
-        if env and mecha_ok and vol_ok: return "SHORT", "ENVOLVENTE"
+    # LONG: EMAs + RSI alcista + Volumen
+    if act['close'] > act['ema_9'] > act['ema_27'] and act['rsi'] > 55:
+        if mecha_ok and vol_ok: return "LONG", "FUERZA RSI"
+        
+    # SHORT: EMAs + RSI bajista + Volumen
+    if act['close'] < act['ema_9'] < act['ema_27'] and act['rsi'] < 45:
+        if mecha_ok and vol_ok: return "SHORT", "FUERZA RSI"
+            
     return None, None
 
-print(f"🔱 IA QUANTUM V10 | MODO TURBO (BYPASS 14s) | ESCALERA 20% | CAP: ${cap_actual}")
+print(f"🔱 IA QUANTUM V11 | FILTRO RSI + VOLUMEN | CAP: ${cap_actual}")
 
 while True:
     try:
-        # CONSULTA MULTI-PRECIO (Consume casi nada de API)
-        prices = {t['symbol']: float(t['price']) for t in cl.get_all_tickers() if t['symbol'] in ms}
+        # Una sola llamada para los precios
+        precios = {t['symbol']: float(t['price']) for t in cl.get_all_tickers() if t['symbol'] in ms}
         
         for m in ms:
             s = st[m]
-            px_actual = prices[m]
+            px = precios[m]
             
-            # 1. SI ESTÁ EN OPERACIÓN: Monitoreo Ultra-Rápido
             if s['e']:
-                diff = (px_actual - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px_actual) / s['p']
+                # Lógica de Escalera de Blindaje (0.5 en 0.5 hasta 20%)
+                diff = (px - s['p']) / s['p'] if s['t'] == "LONG" else (s['p'] - px) / s['p']
                 roi = (diff * 100 * 10) - 0.22
                 gan_usd = (MIN_LOT * (roi / 100))
                 
-                # Escalera 0.5% -> 20.0%
-                niv_cfg = {round(x * 0.5, 1): round((x * 0.5) - 0.4, 2) for x in range(1, 41)}
-                niv_cfg[0.5] = 0.10
+                # Escalera automática
+                meta_actual = (int(roi * 2) / 2.0)
+                if meta_actual > s['nivel'] and meta_actual >= 0.5:
+                    s['nivel'] = meta_actual
+                    print(f"\n🛡️ {m} NIVEL {s['nivel']}% BLOQUEADO")
 
-                for meta in sorted(niv_cfg.keys()):
-                    if roi >= meta and meta > s['nivel']:
-                        s['nivel'] = meta
-                        print(f"\n🛡️ {m} Nivel {meta}% | Piso: {niv_cfg[meta]}% | GAN: ${gan_usd:.2f}")
-
-                # Salida por Piso (Asegurar ganancia)
-                if s['nivel'] in niv_cfg and roi <= niv_cfg[s['nivel']]:
+                # Salida por piso (Piso = Nivel - 0.4%)
+                piso = s['nivel'] - 0.4
+                if s['nivel'] >= 0.5 and roi <= piso:
                     cap_actual += gan_usd
-                    print(f"\n✅ PISO {s['nivel']} ALCANZADO | GANASTE: ${gan_usd:.2f} | NETO: ${cap_actual:.2f}")
+                    print(f"\n✅ CIERRE EN PISO {s['nivel']}% | GANANCIA: ${gan_usd:.2f}")
                     s['e'] = False
-
-                # Stop Loss Corto (-0.7%)
-                elif roi <= -0.7:
+                
+                # Stop Loss Dinámico según volatilidad
+                elif roi <= -0.9:
                     cap_actual += gan_usd
-                    print(f"\n❌ SL CORTO | PNL: ${gan_usd:.2f}")
+                    print(f"\n❌ SL CORTADO | PNL: ${gan_usd:.2f}")
                     s['e'] = False
 
                 print(f"📊 {m}: {roi:.2f}% (N{s['nivel']})", end=' | ')
 
-            # 2. SI BUSCA ENTRADA: Solo aquí pedimos velas
             else:
-                # Pedimos solo 30 velas (lo mínimo necesario)
-                k = cl.get_klines(symbol=m, interval='1m', limit=30)
+                # Solo pedimos klines si no estamos operando esa moneda
+                k = cl.get_klines(symbol=m, interval='1m', limit=50)
                 df = pd.DataFrame(k, columns=['t','open','high','low','close','v','ct','qv','nt','tb','tq','i'])
                 df[['open','high','low','close','v']] = df[['open','high','low','close','v']].astype(float)
                 
                 dir, vela = detectar_entrada(df)
                 if dir:
-                    s['t'], s['p'], s['e'], s['v'], s['nivel'] = dir, px_actual, True, vela, 0
-                    print(f"\n🚀 DISPARO {dir} en {m} | Px: {px_actual}")
-                del df
+                    s['t'], s['p'], s['e'], s['v'], s['nivel'] = dir, px, True, vela, 0
+                    print(f"\n🚀 DISPARO {dir} en {m} con RSI {df['rsi'].iloc[-1]:.2f}")
 
-        # Pausa mínima de 0.3 segundos (para estar debajo del radar de Binance)
-        time.sleep(0.3)
+        time.sleep(2) # Pausa técnica para evitar el bloqueo de 14s
 
     except Exception as e:
-        time.sleep(1); cl = c()
+        time.sleep(5); cl = c()
