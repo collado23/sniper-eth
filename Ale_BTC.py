@@ -3,78 +3,116 @@ import pandas as pd
 import numpy as np
 from binance.client import Client
 
+# --- CONEXIÓN ---
 def c(): 
-    return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))  
+    # Asegúrate de tener tus API Keys configuradas en el sistema
+    return Client(os.getenv('BINANCE_API_KEY'), os.getenv('BINANCE_API_SECRET'))
 
-cl = c()
-ms = ['LINKUSDT', 'ADAUSDT', 'XRPUSDT', 'SOLUSDT', 'DOTUSDT', 'MATICUSDT']
+try:
+    cl = c()
+    print("✅ Conexión exitosa con Binance")
+except:
+    print("❌ Error de conexión. Revisa tus API Keys.")
+
+# --- CONFIGURACIÓN ESTRATÉGICA ---
+ms = ['XRPUSDT', 'LINKUSDT', 'SOLUSDT', 'ADAUSDT', 'MATICUSDT', 'DOTUSDT']
 FILE_MEMORIA = "memoria_maestra.csv"
+cap_inicial = 16.54  # Tu capital de batalla
+riesgo_posicion = 0.95 # Usa el 95% para Interés Compuesto
 
-# --- CONFIGURACIÓN DE CAPITAL E INTERÉS COMPUESTO ---
-cap_actual = 16.54  # Tu capital inicial
-riesgo_por_operacion = 0.95 # Usa el 95% del capital disponible (Interés Compuesto)
-
-def calcular_posicion():
-    # El bot mira cuánto dinero hay 'en la billetera' ahora mismo
-    return cap_actual * riesgo_por_operacion
-
-# --- SMART X (15X MAX) ---
-def calcular_fuerza_x(df, modo, factor_memoria):
-    x_base = 10
-    if modo == "INYECCION": x_base += 3
-    if modo == "VOLTEO_PICO": x_base -= 4
+# --- 🧠 MEMORIA Y APRENDIZAJE ---
+def gestionar_memoria(moneda="", tipo="", modo="", roi=0, resultado="", leer=False):
+    if not os.path.exists(FILE_MEMORIA):
+        with open(FILE_MEMORIA, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['fecha', 'moneda', 'tipo', 'modo', 'roi', 'resultado'])
     
-    # Ajuste por memoria
-    if factor_memoria > 1.0: x_base -= 3 # Precaución
-    if factor_memoria < 1.0: x_base += 2 # Confianza
-    
-    return int(np.clip(x_base, 3, 15)) # Tope de 15x solicitado
+    if leer:
+        try:
+            df = pd.read_csv(FILE_MEMORIA)
+            if len(df) < 2: return 1.0, 16.54
+            # Factor de riesgo basado en últimas 3 operaciones
+            ultimas = df.tail(3)
+            fallos = (ultimas['resultado'] == "LOSS").sum()
+            factor = 1.4 if fallos >= 2 else 0.8 if fallos == 0 else 1.0
+            # Recuperar capital para Interés Compuesto
+            ganancia_total = df['roi'].sum() / 100 # Simplificado
+            return factor, 16.54 + (16.54 * ganancia_total)
+        except: return 1.0, 16.54
+    else:
+        with open(FILE_MEMORIA, 'a', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow([time.strftime('%Y-%m-%d %H:%M:%S'), moneda, tipo, modo, roi, resultado])
 
-# --- MOTOR DE MEMORIA V36 ---
-def leer_memoria_veloz():
-    if not os.path.exists(FILE_MEMORIA): return 1.0
+# --- ⚔️ MOTOR DE ANÁLISIS (AJEDREZ Y GUERRA) ---
+def analizar_entrada(m, factor):
     try:
-        df = pd.read_csv(FILE_MEMORIA)
-        if (df.tail(2)['roi'] < 0).all(): return 1.3
-    except: pass
-    return 1.0
+        k = cl.get_klines(symbol=m, interval='1m', limit=100)
+        df = pd.DataFrame(k, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tq','i']).astype(float)
+        
+        # Indicadores Rápidos
+        ema35 = df['c'].ewm(span=35).mean().iloc[-1]
+        ema200 = df['c'].ewm(span=200).mean().iloc[-1]
+        vol_avg = df['v'].tail(15).mean()
+        px = df['c'].iloc[-1]
+        
+        # 1. DETECTAR INYECCIÓN (Ballenas)
+        inyeccion = df['v'].iloc[-1] > (vol_avg * 2.5) and df['c'].iloc[-1] > df['o'].iloc[-1]
+        
+        # 2. PSICOLOGÍA Y POSICIÓN
+        distancia_segura = abs(px - ema200) / ema200 < 0.02 # No operar si está demasiado estirado
+        
+        if inyeccion and px > ema35 and distancia_segura:
+            # Calcular X Dinámicas (Max 15x)
+            x = int(np.clip(12 / factor, 3, 15))
+            return "LONG", "INYECCION", x
+            
+        return None, None, 0
+    except: return None, None, 0
 
-print(f"🔱 V40 MASTER QUANTUM | 15X MAX | INTERÉS COMPUESTO ACTIVO")
+# --- 🚀 BUCLE PRINCIPAL ---
+print(f"\n🔱 V40 MASTER QUANTUM | 15X MAX | INTERÉS COMPUESTO")
+print(f"--------------------------------------------------")
 
-st = {m: {'e': False, 'p': 0, 't': '', 'max_px': 0, 'modo': ''} for m in ms}
+st = {m: {'e': False, 'p': 0, 't': '', 'max': 0, 'modo': '', 'x': 10} for m in ms}
+factor_actual, capital_trabajo = gestionar_memoria(leer=True)
 
 while True:
     try:
-        f_mem = leer_memoria_veloz()
-        pos_dinamica = calcular_posicion() # Aquí se aplica el interés compuesto
-        
-        precios = {t['symbol']: float(t['price']) for t in cl.get_all_tickers() if t['symbol'] in ms}
-        
         for m in ms:
             s = st[m]
-            px = precios[m]
+            # Tick de precio rápido
+            px = float(cl.get_symbol_ticker(symbol=m)['price'])
             
-            if s['e']:
-                # Lógica de salida con resorte (Trailing)
-                roi = ((px - s['p']) / s['p'] * 1000) if s['t'] == "LONG" else ((s['p'] - px) / s['p'] * 1000)
-                roi -= 0.22 # Comisiones estimadas
+            if not s['e']:
+                # MODO FRANCOTIRADOR
+                print(f"🔭 Escaneando {m} | Cap: ${capital_trabajo:.2f} | Factor: {factor_actual}x", end='\r')
+                tipo, modo, fuerza_x = analizar_entrada(m, factor_actual)
                 
-                s['max_px'] = max(s['max_px'], px) if s['t'] == "LONG" else (min(s['max_px'], px) if s['max_px'] > 0 else px)
-                retroceso = abs(s['max_px'] - px) / s['p'] * 1000
-                
-                if (roi > 0.4 and retroceso > 0.2) or roi <= -1.1:
-                    # Cálculo de ganancia real para el Interés Compuesto
-                    ganancia_usd = (pos_dinamica * (roi / 100))
-                    cap_actual += ganancia_usd
-                    s['e'] = False
-                    print(f"\n💰 CIERRE: {m} | ROI: {roi:.2f}% | NUEVO CAP: ${cap_actual:.2f}")
-                    # Guardar en memoria...
+                if tipo:
+                    s['e'], s['p'], s['t'], s['modo'], s['x'], s['max'] = True, px, tipo, modo, fuerza_x, px
+                    print(f"\n⚔️ ¡ATAQUE DETECTADO! {m} | Modo: {modo} | Apalancamiento: {fuerza_x}x")
             
             else:
-                # Búsqueda de entrada (Inyección / Estrategia de Guerra)
-                # (Aquí iría el bloque de detectar_entrada con calcular_fuerza_x)
-                pass
+                # GESTIÓN DE LA POSICIÓN (EL RESORTE)
+                roi = ((px - s['p']) / s['p'] * 100 * s['x']) if s['t'] == "LONG" else ((s['p'] - px) / s['p'] * 100 * s['x'])
+                roi -= 0.2 # Comisiones
+                
+                s['max'] = max(s['max'], px) if s['t'] == "LONG" else min(s['max'], px)
+                retroceso = abs(s['max'] - px) / s['p'] * 100 * s['x']
+                
+                print(f"📊 {m} ROI: {roi:.2f}% | Max: {s['max']}", end='\r')
+
+                # Salida por Ganancia (Resorte) o Stop Loss
+                if (roi > 0.5 and retroceso > 0.15) or roi <= -1.5:
+                    res = "WIN" if roi > 0 else "LOSS"
+                    ganancia_usd = (capital_trabajo * (roi / 100))
+                    capital_trabajo += ganancia_usd
+                    gestionar_memoria(m, s['t'], s['modo'], roi, res)
+                    s['e'] = False
+                    print(f"\n✅ CIERRE EN {m} | Resultado: {res} | ROI: {roi:.2f}% | Nuevo Cap: ${capital_trabajo:.2f}")
+                    factor_actual, _ = gestionar_memoria(leer=True) # Re-calibrar memoria
 
         time.sleep(0.5)
     except Exception as e:
-        time.sleep(1); cl = c()
+        time.sleep(2)
