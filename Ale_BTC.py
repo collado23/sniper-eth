@@ -2,7 +2,7 @@ import os, time, redis, json
 import pandas as pd
 from binance.client import Client
 
-# --- 📖 LIBRERÍA "EL LIBRO COMPLETO" (Price Action) ---
+# --- 📖 LIBRERÍA "EL LIBRO COMPLETO" (Price Action) --- 
 def reconocer_patron_maestro(df):
     v = df.iloc[-2]      # Vela actual
     v_ant = df.iloc[-3]  # Vela anterior
