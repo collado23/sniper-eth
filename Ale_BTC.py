@@ -2,7 +2,7 @@ import os, time, redis, json
 import pandas as pd
 from binance.client import Client
 
-# --- 🧠 1. MEMORIA DE CAPITAL (Redis) --- 
+# --- 🧠 1. MEMORIA Y CAPITAL ---
 r_url = os.getenv("REDIS_URL")
 r = redis.from_url(r_url) if r_url else None
 
@@ -19,44 +19,10 @@ def gestionar_memoria(leer=False, datos=None):
             cap_act *= (1 + (tr.get('roi', 0) / 100))
             racha = racha + 1 if tr.get('res') == "LOSS" else 0
         return cap_act, racha
-    else:
-        r.lpush("historial_bot", json.dumps(datos))
+    else: r.lpush("historial_bot", json.dumps(datos))
 
-# --- 💰 2. MONITOR DE OPERACIÓN (G y P) ---
-def monitorear_pnl(simbolo, lado, precio_entrada, x, cap_usado):
-    print(f"\n🚀 [ENTRADA] {simbolo} | {lado} | {x}x")
-    
-    while True:
-        try:
-            ticker = Client().get_symbol_ticker(symbol=simbolo)
-            precio_act = float(ticker['price'])
-            
-            # Cálculo de ROI
-            if lado == "LONG":
-                roi = ((precio_act - precio_entrada) / precio_entrada) * 100 * x
-            else: # SHORT
-                roi = ((precio_entrada - precio_act) / precio_entrada) * 100 * x
-            
-            valor_pnl = cap_usado * (roi / 100)
-            status = "🟢" if roi >= 0 else "🔴"
-            
-            # REPORTE ACORTADO: G (Ganancia) / P (Pérdida)
-            tipo_res = "G" if roi >= 0 else "P"
-            print(f"📊 {simbolo} {lado} ({x}x) | {status} {tipo_res}: ${abs(valor_pnl):.2f} ({roi:.2f}%)      ", end='\r')
-
-            # Salidas automáticas
-            if roi >= 1.6:
-                print(f"\n✅ [VENTA G] +${valor_pnl:.2f} (ROI: {roi:.2f}%)")
-                return roi
-            if roi <= -1.3:
-                print(f"\n❌ [CIERRE P] -${abs(valor_pnl):.2f} (ROI: {roi:.2f}%)")
-                return roi
-                
-            time.sleep(5)
-        except: continue
-
-# --- 📊 3. CEREBRO ANALISTA ---
-def cerebro_analista(simbolo, cliente, racha):
+# --- 📊 2. CEREBRO ANALISTA ---
+def analizar(simbolo, cliente, racha):
     try:
         klines = cliente.get_klines(symbol=simbolo, interval='5m', limit=50)
         df = pd.DataFrame(klines, columns=['t','o','h','l','c','v','ct','qv','nt','tb','tq','i'])
@@ -74,36 +40,53 @@ def cerebro_analista(simbolo, cliente, racha):
         x_analizadas = int(min(15, 5 + abs(50 - rsi) * 0.6))
         if racha > 0: x_analizadas = max(1, x_analizadas - (racha * 2))
 
-        # DIRECCIONES
-        if rsi < 34 or (ema9 > ema21 and rsi < 55):
-            return True, "LONG", pre_act, x_analizadas, f"RSI: {rsi:.1f}"
-        if rsi > 66 or (ema9 < ema21 and rsi > 45):
-            return True, "SHORT", pre_act, x_analizadas, f"RSI: {rsi:.1f}"
+        if rsi < 34 or (ema9 > ema21 and rsi < 55): return True, "LONG", pre_act, x_analizadas, rsi
+        if rsi > 66 or (ema9 < ema21 and rsi > 45): return True, "SHORT", pre_act, x_analizadas, rsi
 
-        return False, None, pre_act, 0, f"RSI: {rsi:.1f}"
-    except: return False, None, 0, 0, "Analizando..."
+        return False, None, pre_act, 0, rsi
+    except: return False, None, 0, 0, 0
 
-# --- 🚀 4. BUCLE MAESTRO ---
+# --- 🚀 3. BUCLE MAESTRO (DOBLE OPERACIÓN) ---
 cap, racha = gestionar_memoria(leer=True)
-print(f"🦁 BOT V104 | MODO G/P ACTIVADO | Cap: ${cap:.2f}")
+operaciones = [] # Lista para manejar hasta 2 compras
+print(f"🦁 BOT V106 | DOBLE MORDIDA | Cap: ${cap:.2f}")
 
-presas = ['BTCUSDT', 'XRPUSDT', 'SOLUSDT', 'PEPEUSDT', 'ADAUSDT']
+presas = ['BTCUSDT', 'XRPUSDT', 'SOLUSDT', 'PEPEUSDT', 'ADAUSDT', 'ETHUSDT']
 
 while True:
-    for p in presas:
-        puedo, lado, precio, x_final, info = cerebro_analista(p, Client(), racha)
-        print(f"🧐 {p}: {info} | Cap: ${cap:.2f}    ", end='\r')
-        
-        if puedo:
-            # Operamos con el 50% del capital para tener margen
-            monto = cap * 0.5
-            res_roi = monitorear_pnl(p, lado, precio, x_final, monto)
+    # A. MONITOREAR OPERACIONES ACTIVAS (G/P)
+    for op in operaciones[:]:
+        try:
+            ticker = Client().get_symbol_ticker(symbol=op['s'])
+            p_act = float(ticker['price'])
+            roi = ((p_act - op['p'])/op['p'])*100*op['x'] if op['l']=="LONG" else ((op['p'] - p_act)/op['p'])*100*op['x']
+            gan_usd = op['c'] * (roi / 100)
             
-            # Guardar en memoria
-            gestionar_memoria(False, {'m': p, 'roi': res_roi, 'res': 'WIN' if res_roi > 0 else 'LOSS'})
+            status = "🟢 G" if roi >= 0 else "🔴 P"
+            print(f"📊 {op['s']} {op['l']} ({op['x']}x) | {status}: ${abs(gan_usd):.2f} ({roi:.2f}%)")
+
+            if roi >= 1.6 or roi <= -1.3:
+                print(f"\n✅ CIERRE {op['s']} | ROI: {roi:.2f}%")
+                gestionar_memoria(False, {'m': op['s'], 'roi': roi, 'res': 'WIN' if roi > 0 else 'LOSS'})
+                operaciones.remove(op)
+                cap, racha = gestionar_memoria(leer=True)
+        except: continue
+
+    # B. ANALIZAR EL RESTO (Incluso si hay una abierta)
+    if len(operaciones) < 2: # Solo busca si hay menos de 2 abiertas
+        for p in presas:
+            # No analizar lo que ya compramos
+            if any(o['s'] == p for o in operaciones): continue
             
-            # Recargar capital
-            cap, racha = gestionar_memoria(leer=True)
-            print(f"\n💰 Cap Actual: ${cap:.2f}")
+            puedo, lado, precio, x_f, rsi_f = analizar(p, Client(), racha)
+            
+            if puedo:
+                print(f"\n🎯 [MUESTRA]: {p} analizada {lado} con {x_f}x")
+                # Dividimos el capital: usa el 40% del capital actual para cada una
+                monto_op = cap * 0.4 
+                operaciones.append({'s': p, 'l': lado, 'p': precio, 'x': x_f, 'c': monto_op})
+                if len(operaciones) >= 2: break 
+
+            print(f"🧐 Analizando {p}... RSI: {rsi_f:.1f}   ", end='\r')
 
     time.sleep(15)
