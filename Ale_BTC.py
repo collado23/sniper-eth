@@ -4,7 +4,7 @@ from binance.client import Client
 
 # --- 🌐 1. SERVER DE SALUD ---
 class H(BaseHTTPRequestHandler):
-    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK") 
+    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
 def s_h():
     try: HTTPServer(("0.0.0.0", int(os.getenv("PORT", 8080))), H).serve_forever()
     except: pass
@@ -12,7 +12,7 @@ def s_h():
 # --- 🧠 2. MEMORIA REDIS ---
 r = redis.from_url(os.getenv("REDIS_URL")) if os.getenv("REDIS_URL") else None
 def g_m(leer=False, d=None):
-    c_i = 35.00  # Arrancamos con lo que ganaste en simulación
+    c_i = 35.00 
     if not r: return c_i
     try:
         if leer:
@@ -21,23 +21,28 @@ def g_m(leer=False, d=None):
         else: r.set("cap_v145_real", str(d))
     except: return c_i
 
-# --- 🚀 3. MOTOR V145 (CON VARIABLES BINANCE_API) ---
+# --- 🚀 3. MOTOR V145 (CON VARIABLES APY) ---
 def bot():
     threading.Thread(target=s_h, daemon=True).start()
     
-    # AQUÍ ESTÁ EL CAMBIO: El bot ahora busca tus nombres específicos
-    api_key = os.getenv("BINANCE_API_KEY")
-    api_secret = os.getenv("BINANCE_API_SECRET")
+    # 🔑 CARGA DE LLAVES CON "Y"
+    # Asegurate que en el hosting digan exactamente BINANCE_APY_KEY y BINANCE_APY_SECRET
+    ak = os.getenv("BINANCE_APY_KEY")
+    as_ = os.getenv("BINANCE_APY_SECRET")
     
-    c = Client(api_key, api_secret)
+    if not ak or not as_:
+        print("⚠️ ERROR: No encuentro BINANCE_APY_KEY o BINANCE_APY_SECRET en el hosting")
+    
+    c = Client(ak, as_)
     cap = g_m(leer=True)
     ops = []
     
-    print(f"🦁 V145 REAL | Conectado con BINANCE_API | Cap: ${cap}")
+    print(f"🦁 V145 REAL | APY MODE | Cap: ${cap}")
 
     while True:
         t_l = time.time()
         try:
+            # --- GESTIÓN DE TRADES ---
             for o in ops[:]:
                 p_a = float(c.get_symbol_ticker(symbol=o['s'])['price'])
                 diff = (p_a - o['p'])/o['p'] if o['l']=="LONG" else (o['p'] - p_a)/o['p']
@@ -57,6 +62,7 @@ def bot():
                     g_m(d=n_c); ops.remove(o); cap = n_c
                     print(f"✅ CIERRE REAL | ROI: {roi:.2f}% | Saldo: ${n_c:.2f}")
 
+            # --- BUSCADOR DE ENTRADAS ---
             if len(ops) < 2:
                 for m in ['PEPEUSDT', 'SOLUSDT', 'DOGEUSDT', 'ETHUSDT', 'BTCUSDT']:
                     if any(x['s'] == m for x in ops): continue
@@ -67,7 +73,7 @@ def bot():
                     e9, e27 = sum(cl[-9:])/9, sum(cl[-27:])/27
                     v, o_v = cl[-2], op[-2]
 
-                    if v > o_v and v > e9 and e9 > e27: # Señal LONG
+                    if v > o_v and v > e9 and e9 > e27: # LONG
                         precio = cl[-1]
                         qty = round((cap * 0.9 * 5) / precio, 0)
                         c.futures_change_leverage(symbol=m, leverage=5)
@@ -76,7 +82,7 @@ def bot():
                         print(f"🎯 COMPRA REAL: {m}")
                         break
                         
-                    if v < o_v and v < e9 and e9 < e27: # Señal SHORT
+                    if v < o_v and v < e9 and e9 < e27: # SHORT
                         precio = cl[-1]
                         qty = round((cap * 0.9 * 5) / precio, 0)
                         c.futures_change_leverage(symbol=m, leverage=5)
@@ -88,7 +94,7 @@ def bot():
             print(f"💰 REAL: ${cap:.2f} | Activas: {len(ops)}", end='\r')
 
         except Exception as e:
-            print(f"⚠️ Esperando conexión/llaves: {e}")
+            print(f"⚠️ Error de Conexión/APY: {e}")
             time.sleep(10)
         
         time.sleep(max(1, 10 - (time.time() - t_l)))
