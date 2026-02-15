@@ -2,76 +2,87 @@ import os, time, redis, json, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from binance.client import Client
 
-# --- 🌐 1. SERVER DE SALUD ---
 class H(BaseHTTPRequestHandler):
     def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
 def s_h():
     try: HTTPServer(("0.0.0.0", int(os.getenv("PORT", 8080))), H).serve_forever()
     except: pass
 
-# --- 🧠 2. MEMORIA REDIS (Backup) ---
 r = redis.from_url(os.getenv("REDIS_URL")) if os.getenv("REDIS_URL") else None
 def g_m(leer=False, d=None):
-    if not r: return 15.0 # Valor por defecto si falla todo
+    if not r: return 15.0
     try:
         if leer:
-            h = r.get("cap_v146_real")
-            return float(h) if h else 15.0
+            h = r.get("cap_v146_real"); return float(h) if h else 15.0
         else: r.set("cap_v146_real", str(d))
     except: return 15.0
 
-# --- 🚀 3. MOTOR V146 AUTO-BALANCE ---
 def bot():
     threading.Thread(target=s_h, daemon=True).start()
-    
-    # Carga de llaves con tus nombres de hosting
-    ak = os.getenv("BINANCE_APY_KEY")
-    as_ = os.getenv("BINANCE_APY_SECRET")
+    ak, as_ = os.getenv("BINANCE_APY_KEY"), os.getenv("BINANCE_APY_SECRET")
     c = Client(ak, as_)
+    ops = []
     
-    print(f"🦁 V146 ACTIVADA | MODO REAL AUTO-BALANCE")
+    print(f"🦁 V146 REAL | AUTO-BALANCE ACTIVO")
 
     while True:
         t_l = time.time()
         try:
-            # 🔍 ESTO ES LO QUE PREGUNTABAS: El bot lee tu billetera real ahora mismo
+            # ACTUALIZAR SALDO DESDE BINANCE
             bal = c.futures_account_balance()
-            cap_real = 0.0
-            for b in bal:
-                if b['asset'] == 'USDT':
-                    cap_real = float(b['balance'])
-                    break
-            
-            # Guardamos en memoria lo que hay en Binance
-            g_m(d=cap_real)
-            cap = cap_real 
+            cap = next((float(b['balance']) for b in bal if b['asset'] == 'USDT'), 0.0)
+            g_m(d=cap)
 
-            # --- GESTIÓN DE POSICIONES ---
-            # (Aquí iría el resto de la lógica de ops, pero lo simplifico para que lo veas claro)
-            # El bot usará 'cap' (tu saldo real) para calcular el tamaño de la compra.
-            
-            ops = [] # En un código real esto persiste, aquí lo dejamos para la lógica
-            
-            # ... (Lógica de monitoreo de trades igual a la anterior) ...
+            for o in ops[:]:
+                p_a = float(c.get_symbol_ticker(symbol=o['s'])['price'])
+                diff = (p_a - o['p'])/o['p'] if o['l']=="LONG" else (o['p'] - p_a)/o['p']
+                roi = diff * 100 * o['x']
+                
+                if roi > 0.2 and o['x'] == 5: 
+                    o['x'] = 15; o['be'] = True
+                    try: c.futures_change_leverage(symbol=o['s'], leverage=15)
+                    except: pass
 
-            # --- BUSCADOR DE ENTRADAS CON SALDO REAL ---
-            # Cuando el bot encuentre una señal, hará esto:
-            # qty = round((cap * 0.9 * 5) / precio, 0) 
-            # Como 'cap' es tu saldo de Binance, la cantidad será PERFECTA.
+                if (o['be'] and roi <= 0.05) or roi >= 1.5 or roi <= -0.9:
+                    side = "SELL" if o['l'] == "LONG" else "BUY"
+                    c.futures_create_order(symbol=o['s'], side=side, type='MARKET', quantity=o['q'])
+                    ops.remove(o)
+                    print(f"✅ CIERRE REAL | ROI: {roi:.2f}%")
 
-            # PEQUEÑO FIX PARA EL PRINT
-            print(f"💰 SALDO REAL EN BINANCE: ${cap:.2f} | {time.strftime('%H:%M:%S')}", end='\r')
+            if len(ops) < 2:
+                for m in ['PEPEUSDT', 'DOGEUSDT', 'SOLUSDT', 'SHIBUSDT']:
+                    if any(x['s'] == m for x in ops): continue
+                    k = c.get_klines(symbol=m, interval='1m', limit=30)
+                    cl, op_p = [float(x[4]) for x in k], [float(x[1]) for x in k]
+                    e9, e27 = sum(cl[-9:])/9, sum(cl[-27:])/27
+                    v, o_v = cl[-2], op_p[-2]
 
-            # --- Lógica de Estrategia ---
-            for m in ['PEPEUSDT', 'DOGEUSDT', 'SOLUSDT']:
-                # Aquí el bot analiza las EMAs y velas como antes...
-                # Y lanza las órdenes usando el capital 'cap' que leyó arriba.
-                pass
+                    if v > o_v and v > e9 and e9 > e27:
+                        precio = cl[-1]
+                        qty = round((cap * 0.9 * 5) / precio, 0)
+                        if qty > 0:
+                            c.futures_change_leverage(symbol=m, leverage=5)
+                            c.futures_create_order(symbol=m, side='BUY', type='MARKET', quantity=qty)
+                            ops.append({'s':m,'l':'LONG','p':precio,'x':5,'q':qty,'be':False})
+                            print(f"🎯 COMPRA REAL: {m}")
+                            break
+                        
+                    if v < o_v and v < e9 and e9 < e27:
+                        precio = cl[-1]
+                        qty = round((cap * 0.9 * 5) / precio, 0)
+                        if qty > 0:
+                            c.futures_change_leverage(symbol=m, leverage=5)
+                            c.futures_create_order(symbol=m, side='SELL', type='MARKET', quantity=qty)
+                            ops.append({'s':m,'l':'SHORT','p':precio,'x':5,'q':qty,'be':False})
+                            print(f"🎯 VENTA REAL: {m}")
+                            break
+
+            print(f"💰 REAL: ${cap:.2f} | Activas: {len(ops)} | {time.strftime('%H:%M:%S')}", end='\r')
 
         except Exception as e:
             print(f"⚠️ Error: {e}")
             time.sleep(10)
         
-        time.sleep(10)
+        time.sleep(max(1, 10 - (time.time() - t_l)))
 
-# El código que te paso aquí abajo es el COMPLETO para copiar y pegar:
+if __name__ == "__main__": bot()
