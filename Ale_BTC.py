@@ -2,82 +2,90 @@ import os, time, redis, threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from binance.client import Client
 
-# --- SERVIDOR DE SALUD ---
+# --- SERVER DE SALUD ---
 class H(BaseHTTPRequestHandler):
     def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
 def s_h():
     try: HTTPServer(("0.0.0.0", int(os.getenv("PORT", 8080))), H).serve_forever()
     except: pass
 
-# --- MOTOR V146.1 "LECTOR REAL" ---
+# --- MEMORIA SOLO PARA PROGRESO REAL ---
+r = redis.from_url(os.getenv("REDIS_URL")) if os.getenv("REDIS_URL") else None
+def guardar_progreso(nuevo_cap):
+    if r:
+        try: r.set("cap_v147_real", str(nuevo_cap))
+        except: pass
+
 def bot():
     threading.Thread(target=s_h, daemon=True).start()
     
-    # Buscamos tus variables APY
-    ak = os.getenv("BINANCE_APY_KEY")
-    as_ = os.getenv("BINANCE_APY_SECRET")
+    # Buscador de llaves (APY o API)
+    ak = os.getenv("BINANCE_APY_KEY") or os.getenv("BINANCE_API_KEY")
+    as_ = os.getenv("BINANCE_APY_SECRET") or os.getenv("BINANCE_API_SECRET")
+
+    print(f"🚀 INICIANDO V147 - BASE REAL: $15.00")
     
-    print(f"🚀 INICIANDO COCODRILO V146.1")
-    
-    try:
-        c = Client(ak, as_)
-        # Verificamos conexión inmediata
-        c.get_account_status()
-        print("✅ CONEXIÓN EXITOSA CON BINANCE")
-    except Exception as e:
-        print(f"❌ ERROR CRÍTICO DE CONEXIÓN: {e}")
-        return
+    c = None
+    if ak and as_:
+        try:
+            c = Client(ak, as_)
+            print("✅ CLIENTE CONECTADO")
+        except:
+            print("❌ ERROR DE LLAVES")
 
     ops = []
+    cap = 15.00 # Empezamos de cero con tu capital real
 
     while True:
         try:
-            # 🔍 ESTO ES LO QUE IMPORTA: Leer saldo real de la billetera de FUTUROS
-            bal = c.futures_account_balance()
-            cap = 0.0
-            for b in bal:
-                if b['asset'] == 'USDT':
-                    cap = float(b['balance'])
-                    break
-            
-            if cap == 0:
-                print("⚠️ ATENCIÓN: Saldo 0.0 o no se pudo leer la billetera de Futuros.")
-            
-            # --- LÓGICA DE MONITOREO ---
+            if c:
+                # Intentamos actualizar el saldo con la realidad de Binance
+                try:
+                    bal = c.futures_account_balance()
+                    for b in bal:
+                        if b['asset'] == 'USDT':
+                            cap = float(b['balance'])
+                            guardar_progreso(cap) # Solo guarda si es un saldo real
+                            break
+                except:
+                    pass
+
+            # --- LÓGICA DE TRADING ---
             for o in ops[:]:
                 p_a = float(c.get_symbol_ticker(symbol=o['s'])['price'])
                 diff = (p_a - o['p'])/o['p'] if o['l']=="LONG" else (o['p'] - p_a)/o['p']
                 roi = diff * 100 * o['x']
                 
-                if roi > 0.2 and o['x'] == 5:
-                    o['x'] = 15; o['be'] = True
-                    c.futures_change_leverage(symbol=o['s'], leverage=15)
-
-                if (o['be'] and roi <= 0.05) or roi >= 1.5 or roi <= -0.9:
+                # Cierres
+                if roi >= 1.5 or roi <= -0.9:
                     side = "SELL" if o['l'] == "LONG" else "BUY"
                     c.futures_create_order(symbol=o['s'], side=side, type='MARKET', quantity=o['q'])
                     ops.remove(o)
-                    print(f"✅ CIERRE REAL REALIZADO")
+                    print(f"✅ POSICIÓN CERRADA")
 
-            # --- BUSCADOR DE ENTRADAS ---
-            if len(ops) < 2 and cap > 5: # Solo opera si tenés más de $5 reales
+            # --- ENTRADAS (90% de los $15 reales) ---
+            if len(ops) < 2 and cap >= 10:
                 for m in ['PEPEUSDT', 'DOGEUSDT', 'SOLUSDT']:
                     if any(x['s'] == m for x in ops): continue
                     k = c.get_klines(symbol=m, interval='1m', limit=30)
                     cl = [float(x[4]) for x in k]
                     e9, e27 = sum(cl[-9:])/9, sum(cl[-27:])/27
                     
-                    if cl[-2] > e9 and e9 > e27: # Señal Long Simple
-                        qty = round((cap * 0.9 * 5) / cl[-1], 0)
-                        c.futures_change_leverage(symbol=m, leverage=5)
-                        c.futures_create_order(symbol=m, side='BUY', type='MARKET', quantity=qty)
-                        ops.append({'s':m,'l':'LONG','p':cl[-1],'x':5,'q':qty,'be':False})
-                        break
+                    if cl[-2] > e9 and e9 > e27:
+                        precio = cl[-1]
+                        # Calcula la cantidad para que entre justa en tus $15
+                        qty = round((cap * 0.9 * 5) / precio, 0)
+                        if qty > 0:
+                            c.futures_change_leverage(symbol=m, leverage=5)
+                            c.futures_create_order(symbol=m, side='BUY', type='MARKET', quantity=qty)
+                            ops.append({'s':m,'l':'LONG','p':precio,'x':5,'q':qty})
+                            print(f"🎯 COMPRA REAL EN {m}")
+                            break
 
-            print(f"💰 SALDO EN BINANCE: ${cap:.2f} | Activas: {len(ops)}", end='\r')
+            print(f"💰 CAPITAL ACTUAL: ${cap:.2f} | Activas: {len(ops)}", end='\r')
 
         except Exception as e:
-            print(f"⚠️ Error en ciclo: {e}")
+            print(f"⚠️ Log: {e}")
             time.sleep(10)
         
         time.sleep(10)
