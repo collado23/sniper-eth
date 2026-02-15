@@ -2,22 +2,20 @@ import os, time, redis, threading
 from binance.client import Client
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-# --- SERVER DE SALUD ---
 class H(BaseHTTPRequestHandler):
-    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK") 
+    def do_GET(self): self.send_response(200); self.end_headers(); self.wfile.write(b"OK")
 def s_h():
     try: HTTPServer(("0.0.0.0", int(os.getenv("PORT", 8080))), H).serve_forever()
     except: pass
 
-# --- MEMORIA REAL ---
 r = redis.from_url(os.getenv("REDIS_URL")) if os.getenv("REDIS_URL") else None
 def g_m(leer=False, d=None):
     if not r: return None
     try:
         if leer:
-            v = r.get("mem_v157_real")
+            v = r.get("mem_v158_real")
             return eval(v) if v else None
-        else: r.set("mem_v157_real", str(d))
+        else: r.set("mem_v158_real", str(d))
     except: return None
 
 def bot():
@@ -28,9 +26,10 @@ def bot():
     
     datos = g_m(leer=True) or {"ops": []}
     ops = datos["ops"]
-    monedas_ok = ['BTCUSDT', 'DOGEUSDT', 'SOLUSDT']
+    # Solo las que permiten buen apalancamiento con poco capital
+    monedas_ok = ['BTCUSDT', 'SOLUSDT', 'DOGEUSDT']
 
-    print(f"🚀 V157 - ESTRATEGIA ORIGINAL (5X CON SALTO A 15X)")
+    print(f"🚀 V158 - MODO POSICIÓN MÍNIMA (>100 USDT)")
 
     while True:
         try:
@@ -43,23 +42,14 @@ def bot():
                 diff = (p_a - o['p'])/o['p'] if o['l']=="LONG" else (o['p'] - p_a)/o['p']
                 roi = diff * 100 * o['x']
                 
-                # --- TU LÓGICA DE OPORTUNIDAD ---
-                # Si va ganando más de 0.2% y todavía está en 5x, sube a 15x
-                if roi > 0.2 and o['x'] == 5:
-                    o['x'] = 15
-                    try: 
-                        c.futures_change_leverage(symbol=o['s'], leverage=15)
-                        print(f"🔥 OPORTUNIDAD: Subiendo a 15x en {o['s']}")
-                    except: pass
-
-                # Cierres
-                if roi >= 1.5 or roi <= -0.9:
+                # Gestión de salida (ajustada para 15x)
+                if roi >= 3.0 or roi <= -1.5:
                     c.futures_create_order(symbol=o['s'], side=("SELL" if o['l']=="LONG" else "BUY"), type='MARKET', quantity=o['q'])
                     ops.remove(o)
                     print(f"✅ CIERRE EJECUTADO")
                     time.sleep(5); break
 
-            # --- ENTRADA ORIGINAL (Siempre empieza en 5x) ---
+            # ENTRADA: Usamos 15x de entrada para saltar el error 4164
             if len(ops) < 1 and cap >= 10:
                 for m in monedas_ok:
                     k = c.get_klines(symbol=m, interval='1m', limit=30)
@@ -68,17 +58,17 @@ def bot():
                     
                     if cl[-2] > e9 and e9 > e27:
                         precio = float(c.get_symbol_ticker(symbol=m)['price'])
-                        # Entra con el 50% a 5x
-                        qty = round((cap * 0.50 * 5) / precio, 3 if 'BTC' in m else 1)
+                        # 70% de cap a 15x = ~$160 de posición (Pasa el mínimo de 100 de Binance)
+                        qty = round((cap * 0.70 * 15) / precio, 3 if 'BTC' in m else 1)
                         
                         if qty > 0:
-                            c.futures_change_leverage(symbol=m, leverage=5)
+                            c.futures_change_leverage(symbol=m, leverage=15)
                             c.futures_create_order(symbol=m, side='BUY', type='MARKET', quantity=qty)
-                            ops.append({'s':m,'l':'LONG','p':precio,'q':qty, 'x':5})
-                            print(f"🎯 ENTRADA 5X: {m}")
+                            ops.append({'s':m,'l':'LONG','p':precio,'q':qty, 'x':15})
+                            print(f"🎯 ENTRADA 15X EXITOSA (Superó mínimo 100 USDT)")
                             break
 
-            print(f"💰 REAL: ${cap:.2f} | Activas: {len(ops)}", end='\r')
+            print(f"💰 REAL: ${cap:.2f} | Activas: {len(ops)} | 15x", end='\r')
 
         except Exception as e:
             print(f"⚠️ Log: {e}")
